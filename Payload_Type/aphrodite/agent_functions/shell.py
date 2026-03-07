@@ -18,7 +18,10 @@ class ShellArguments(TaskArguments):
     async def parse_arguments(self):
         if len(self.command_line) == 0:
             raise ValueError("Command required")
-        self.add_arg("command", self.command_line)
+        if self.command_line[0] == '{':
+            self.load_args_from_json_string(self.command_line)
+        else:
+            self.add_arg("command", self.command_line)
 
 
 class ShellCommand(CommandBase):

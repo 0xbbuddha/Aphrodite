@@ -1,6 +1,15 @@
+import std/json
+import ../types
 import ../utils
+import ./registry
 
-proc runWhoami*(): string =
-  let user = getUsername()
-  let host = getHostname()
-  result = user & "@" & host
+proc whoamiExecute(taskId: string, params: JsonNode, state: AgentState,
+                   send: SendMsg): TaskResult =
+  return TaskResult(
+    output: getUsername() & "@" & getHostname(),
+    status: "success",
+    completed: true,
+  )
+
+proc initWhoami*() =
+  register("whoami", whoamiExecute)

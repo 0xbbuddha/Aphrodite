@@ -1,22 +1,30 @@
-import std/[osproc, os]
+import std/[osproc, os, json]
+import ../types
+import ./registry
 
-proc runShell*(params: string, cwd: string): string =
-  if params.len == 0:
-    return "Error: no command provided"
-  let workDir = if cwd.len > 0: cwd else: getCurrentDir()
+proc shellExecute(taskId: string, params: JsonNode, state: AgentState,
+                  send: SendMsg): TaskResult =
+  let command = params{"command"}.getStr("")
+  if command.len == 0:
+    return TaskResult(output: "Error: command parameter missing",
+                      status: "error", completed: true)
   try:
     when defined(windows):
-      let (output, _) = execCmdEx(
-        "cmd.exe /c " & params,
+      let (output, code) = execCmdEx(
+        "cmd.exe /c " & command,
         options = {poStdErrToStdOut},
-        workingDir = workDir,
+        workingDir = state.cwd,
       )
     else:
-      let (output, _) = execCmdEx(
-        "/bin/sh -c " & quoteShell(params),
+      let (output, code) = execCmdEx(
+        "/bin/sh -c " & quoteShell(command),
         options = {poStdErrToStdOut},
-        workingDir = workDir,
+        workingDir = state.cwd,
       )
-    result = output
+    let status = if code == 0: "success" else: "error"
+    return TaskResult(output: output, status: status, completed: true)
   except Exception as e:
-    result = "Error: " & e.msg
+    return TaskResult(output: "Error: " & e.msg, status: "error", completed: true)
+
+proc initShell*() =
+  register("shell", shellExecute)

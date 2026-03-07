@@ -254,6 +254,7 @@ NOTE: Requires PSK mode - uncheck 'Encrypted Key Exchange' in HTTP profile.
                     "--verbosity:0",
                     "--hints:off",
                     "--warnings:off",
+                    "--threads:on",
                 ]
 
                 if debug:

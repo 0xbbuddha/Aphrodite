@@ -1,33 +1,33 @@
-import std/[os, times, strformat, strutils]
+import std/[os, json, strutils, times]
+import ../types
+import ./registry
 
-proc runLs*(path: string, cwd: string): string =
-  ## List files in directory. Returns formatted text output.
-  var target = path
-  if target.len == 0 or target == ".":
-    target = if cwd.len > 0: cwd else: getCurrentDir()
-  elif not isAbsolute(target):
-    target = joinPath(if cwd.len > 0: cwd else: getCurrentDir(), target)
-
-  if not dirExists(target):
-    return "Error: directory not found: " & target
-
-  var lines: seq[string]
-  lines.add(fmt"Directory: {target}")
-  lines.add("")
+proc lsExecute(taskId: string, params: JsonNode, state: AgentState,
+               send: SendMsg): TaskResult =
+  var path = params{"path"}.getStr(".")
+  if path.len == 0: path = "."
+  let fullPath = if isAbsolute(path): path else: state.cwd / path
 
   try:
-    for kind, path in walkDir(target):
-      let info = getFileInfo(path)
-      let name = lastPathPart(path)
-      let size = if kind == pcFile: $info.size else: "<DIR>"
-      let mtime = info.lastWriteTime.format("yyyy-MM-dd HH:mm")
-      let typeChar = case kind
-        of pcFile: "-"
-        of pcDir: "d"
-        of pcLinkToFile, pcLinkToDir: "l"
-        else: "?"
-      lines.add(fmt"{typeChar}  {mtime}  {size:>12}  {name}")
-  except Exception as e:
-    return "Error listing directory: " & e.msg
+    var lines: seq[string] = @[]
+    lines.add("Directory: " & fullPath)
+    lines.add("")
+    for kind, entry in walkDir(fullPath):
+      let info = getFileInfo(entry)
+      let name = lastPathPart(entry)
+      let mtime = format(info.lastWriteTime, "yyyy-MM-dd HH:mm")
+      let (typeChar, size) = case kind
+        of pcFile:        ("-", $info.size)
+        of pcDir:         ("d", "<DIR>")
+        of pcLinkToFile:  ("l", $info.size)
+        of pcLinkToDir:   ("l", "<DIR>")
+      lines.add(typeChar & "  " & mtime & "  " & align(size, 12) & "  " & name)
 
-  result = lines.join("\n")
+    if lines.len <= 2:
+      lines.add("(empty directory)")
+    return TaskResult(output: lines.join("\n"), status: "success", completed: true)
+  except Exception as e:
+    return TaskResult(output: "Error: " & e.msg, status: "error", completed: true)
+
+proc initLs*() =
+  register("ls", lsExecute)

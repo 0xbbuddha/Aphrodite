@@ -1,38 +1,38 @@
 from mythic_container.MythicCommandBase import *
 from mythic_container.MythicRPC import *
-from mythic_container.PayloadBuilder import *
 
 
-class CdArguments(TaskArguments):
+class MkdirArguments(TaskArguments):
     def __init__(self, command_line, **kwargs):
         super().__init__(command_line, **kwargs)
         self.args = [
             CommandParameter(
                 name="path",
                 type=ParameterType.String,
-                description="Target directory path",
-                parameter_group_info=[ParameterGroupInfo(group_name="Default", ui_position=0, required=True)],
+                description="Directory path to create",
+                parameter_group_info=[
+                    ParameterGroupInfo(group_name="Default", ui_position=0, required=True)
+                ],
             )
         ]
 
     async def parse_arguments(self):
-        if len(self.command_line) == 0:
-            raise ValueError("Path required")
-        if self.command_line[0] == '{':
-            self.load_args_from_json_string(self.command_line)
-        else:
-            self.add_arg("path", self.command_line)
+        if len(self.command_line) > 0:
+            if self.command_line[0] == '{':
+                self.load_args_from_json_string(self.command_line)
+            else:
+                self.add_arg("path", self.command_line)
 
 
-class CdCommand(CommandBase):
-    cmd = "cd"
+class MkdirCommand(CommandBase):
+    cmd = "mkdir"
     needs_admin = False
-    help_cmd = "cd <path>"
-    description = "Change current working directory"
+    help_cmd = "mkdir <path>"
+    description = "Create a directory"
     version = 1
     author = "@0xbbuddha"
-    argument_class = CdArguments
-    attackmapping = []
+    argument_class = MkdirArguments
+    attackmapping = ["T1106"]
     attributes = CommandAttributes(supported_os=[SupportedOS.Linux, SupportedOS.Windows])
 
     async def create_tasking(self, task: MythicTask) -> MythicTask:

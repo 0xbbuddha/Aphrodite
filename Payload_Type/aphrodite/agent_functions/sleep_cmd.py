@@ -25,12 +25,15 @@ class SleepArguments(TaskArguments):
     async def parse_arguments(self):
         if len(self.command_line) == 0:
             raise ValueError("Interval required")
-        parts = self.command_line.strip().split()
-        self.add_arg("interval", int(parts[0]))
-        if len(parts) > 1:
-            self.add_arg("jitter", int(parts[1]))
+        if self.command_line.strip()[0] == '{':
+            self.load_args_from_json_string(self.command_line)
         else:
-            self.add_arg("jitter", 0)
+            parts = self.command_line.strip().split()
+            self.add_arg("interval", int(parts[0]))
+            if len(parts) > 1:
+                self.add_arg("jitter", int(parts[1]))
+            else:
+                self.add_arg("jitter", 0)
 
 
 class SleepCommand(CommandBase):
