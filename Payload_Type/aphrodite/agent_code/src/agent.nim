@@ -297,20 +297,25 @@ proc processSocksIn(socksArr: JsonNode): seq[JsonNode] =
   ## Process incoming socks datagrams from Mythic.
   result = @[]
   if socksArr.isNil or socksArr.kind != JArray: return
+  stderr.writeLine("[SOCKS] processSocksIn: " & $socksArr.len & " packets from Mythic")
   for item in socksArr:
     let serverId = item{"server_id"}.getInt(-1)
     let exit     = item{"exit"}.getBool(false)
     let rawData  = decode(item{"data"}.getStr(""))
+    stderr.writeLine("[SOCKS] <- Mythic server_id=" & $serverId & " exit=" & $exit & " data_len=" & $rawData.len)
     for (sid, respData) in socksHandleData(serverId, rawData, exit):
+      stderr.writeLine("[SOCKS] -> queued reply " & $respData.len & " bytes for server_id=" & $sid)
       result.add(%*{"server_id": sid, "data": encode(respData), "exit": false})
 
 proc collectSocksOut(): seq[JsonNode] =
   ## Drain buffered TCP→Mythic data from all active SOCKS connections.
   result = @[]
   for (sid, respData) in socksCollect():
+    stderr.writeLine("[SOCKS] -> Mythic " & $respData.len & " bytes server_id=" & $sid)
     result.add(%*{"server_id": sid, "data": encode(respData), "exit": false})
   ## Notify Mythic of closed connections
   for sid in socksCollectExits():
+    stderr.writeLine("[SOCKS] -> Mythic EXIT server_id=" & $sid)
     result.add(%*{"server_id": sid, "data": "", "exit": true})
 
 # ---------------------------------------------------------------------------

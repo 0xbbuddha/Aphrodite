@@ -34,20 +34,26 @@ for i in 0 ..< MaxSocksConns:
 proc socketReaderProc(idx: int) {.thread.} =
   ## Reads from TCP socket and pushes data to sOutChan[idx].
   ## Blocks on recv (no timeout) — unblocks when socket is closed.
+  {.cast(gcsafe).}:
+    stderr.writeLine("[SOCKS] reader started for slot=" & $idx & " server_id=" & $sServerId[idx])
   var buf = newString(65536)
   while sAlive[idx]:
     {.cast(gcsafe).}:
       try:
         let n = sSocket[idx].recv(buf, 65536)
         if n <= 0:
+          stderr.writeLine("[SOCKS] reader EOF/close for slot=" & $idx & " server_id=" & $sServerId[idx])
           sAlive[idx] = false
           break
+        stderr.writeLine("[SOCKS] reader got " & $n & " bytes from TCP slot=" & $idx & " server_id=" & $sServerId[idx])
         sOutChan[idx].send(buf[0 ..< n])
-      except:
+      except CatchableError as e:
+        stderr.writeLine("[SOCKS] reader error slot=" & $idx & ": " & e.msg)
         sAlive[idx] = false
         break
   ## Notify main loop that this connection is closed
   {.cast(gcsafe).}:
+    stderr.writeLine("[SOCKS] reader exiting slot=" & $idx & ", notifying main loop")
     sExitChan.send(sServerId[idx])
 
 proc socksFindIdx(serverId: int): int {.inline.} =
@@ -75,6 +81,7 @@ proc socksHandleData*(serverId: int, rawData: string,
 
   if i < 0:
     ## New connection — first packet is the SOCKS5 CONNECT request.
+    stderr.writeLine("[SOCKS] new conn server_id=" & $serverId & " data_len=" & $rawData.len)
     if sCount >= MaxSocksConns: return
     let idx = sCount
     inc sCount
@@ -86,29 +93,37 @@ proc socksHandleData*(serverId: int, rawData: string,
     let (target, ok) = socks5ParseConnect(sBuf[idx])
     if not ok:
       ## Bad or incomplete CONNECT — refuse
+      stderr.writeLine("[SOCKS] CONNECT parse failed for server_id=" & $serverId)
       result.add((serverId, socks5ConnectReply(false)))
       sAlive[idx] = false
       return
 
+    stderr.writeLine("[SOCKS] CONNECT parsed: " & target.host & ":" & $target.port)
     ## Establish TCP connection to the target
+    ## buffered=false: recv() returns immediately with available data (like C recv()).
+    ## With buffered=true (default), recv(size=N) blocks until N bytes arrive — wrong for HTTP.
     try:
-      sSocket[idx] = newSocket()
+      sSocket[idx] = newSocket(buffered = false)
       sSocket[idx].connect(target.host, Port(target.port))
+      stderr.writeLine("[SOCKS] TCP connected to " & target.host & ":" & $target.port)
       ## Send success reply
       result.add((serverId, socks5ConnectReply(true)))
       sState[idx] = scsRelay
       sBuf[idx] = ""
       createThread(sThread[idx], socketReaderProc, idx)
     except Exception as e:
+      stderr.writeLine("[SOCKS] TCP connect failed: " & e.msg)
       result.add((serverId, socks5ConnectReply(false)))
       sAlive[idx] = false
     return
 
   ## Existing connection — relay data to the TCP socket.
   if sState[i] == scsRelay and rawData.len > 0:
+    stderr.writeLine("[SOCKS] relay " & $rawData.len & " bytes to TCP server_id=" & $serverId)
     try:
       sSocket[i].send(rawData)
-    except:
+    except CatchableError as e:
+      stderr.writeLine("[SOCKS] relay send failed: " & e.msg)
       sAlive[i] = false
 
 proc socksCollectExits*(): seq[int] =
@@ -120,10 +135,11 @@ proc socksCollectExits*(): seq[int] =
     result.add(r.msg)
 
 proc socksCollect*(): seq[(int, string)] =
-  ## Drain buffered TCP→Mythic data from all active connections.
+  ## Drain buffered TCP→Mythic data from all connections (alive or recently closed).
+  ## We intentionally drain even dead connections to avoid losing data that the
+  ## reader thread queued before setting sAlive = false.
   result = @[]
   for i in 0 ..< sCount:
-    if not sAlive[i]: continue
     while true:
       let r = sOutChan[i].tryRecv()
       if not r.dataAvailable: break
