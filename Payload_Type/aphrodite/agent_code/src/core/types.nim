@@ -3,8 +3,9 @@ import std/json
 type
   TaskResult* = object
     output*: string
-    status*: string    ## "success" | "error"
+    status*: string       ## "success" | "error"
     completed*: bool
+    extraFields*: JsonNode ## optional structured data merged into the Mythic response
 
   AgentState* = ref object
     cwd*: string

