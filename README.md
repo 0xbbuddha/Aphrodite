@@ -58,6 +58,7 @@ Persistent WebSocket connection to the Mythic server. Messages follow the Mythic
 | `architecture`  | Choice  | `amd64`   | Target architecture (amd64 only)                         |
 | `debug`         | Boolean | `false`   | Enable verbose debug output (larger binary)              |
 | `static_binary` | Boolean | `false`   | Statically link binary (no shared library dependencies)  |
+| `obfuscation`   | Choice  | `none`    | String obfuscation: `xor` or `aes` encode config strings (C2 URL, UUID, PSK, etc.) at build time, decoded at runtime |
 
 ## Opsec Considerations
 
