@@ -3,7 +3,7 @@
   "languages": ["nim"],
   "features": {
     "mythic": ["docker", "killdate", "socks"],
-    "custom": ["psk", "eke", "plaintext", "jitter"]
+    "custom": ["psk", "eke", "plaintext", "jitter", "string_obfuscation", "apc_injection"]
   },
   "payload_output": ["binary"],
   "architectures": ["x86_64"],

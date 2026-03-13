@@ -17,11 +17,11 @@ Aphrodite is a lightweight cross-platform agent written in Nim, designed for Myt
 - Kill date support
 - Static binary option (no shared library dependencies on target)
 - SOCKS5 proxy support (tunneling through the agent)
-- 41 built-in commands covering:
+- 42 built-in commands covering:
   - Reconnaissance (`whoami`, `ps`, `hostname`, `ifconfig`, `arp`, `nslookup`, `uptime`, `netstat`)
   - File operations (`ls`, `cat`, `cd`, `pwd`, `mkdir`, `rm`, `mv`, `cp`, `tail`, `drives`, `chmod`, `chown`, `find`, `write`)
   - File transfer (`download`, `upload`, `wget`, `curl`)
-  - Execution (`shell`, `psh`, `sudo`, `runas`)
+  - Execution (`shell`, `psh`, `sudo`, `runas`, `earlybird` — Windows only)
   - Environment (`getenv`, `setenv`, `env`)
   - Agent control (`sleep`, `exit`, `kill`, `echo`, `socks`, `jobs`, `jobkill`, `config`)
 
@@ -58,7 +58,7 @@ Persistent WebSocket connection to the Mythic server. Messages follow the Mythic
 | `architecture`  | Choice  | `amd64`   | Target architecture (amd64 only)                         |
 | `debug`         | Boolean | `false`   | Enable verbose debug output (larger binary)              |
 | `static_binary` | Boolean | `false`   | Statically link binary (no shared library dependencies)  |
-| `obfuscation`   | Choice  | `none`    | String obfuscation: `xor` or `aes` encode config strings (C2 URL, UUID, PSK, etc.) at build time, decoded at runtime |
+| `obfuscation`   | Choice  | `none`    | Config string obfuscation: `xor` or `aes` encode config values (C2 URL, UUID, PSK, etc.) at build time, decoded at runtime. All other codebase strings are always obfuscated via compile-time XOR (`hidstr`) regardless of this option |
 
 ## Opsec Considerations
 
@@ -73,6 +73,17 @@ Aphrodite compiles to a native binary with no runtime interpreter required on th
 | PSK        | AES-256-CBC + HMAC-SHA256 with a pre-shared key baked into the binary                           |
 | EKE        | RSA-2048 staging — `staging_rsa` encrypted with PSK, session key negotiated via RSA (Linux only) |
 | Plaintext  | No encryption — AESPSK left empty in C2 profile, for lab/testing use only                       |
+
+### String Obfuscation
+
+Two independent layers of string obfuscation:
+
+| Layer | Scope | When active |
+|-------|-------|-------------|
+| `hidstr` compile-time XOR | All codebase strings — command names, C2 protocol keys (`checkin`, `get_tasking`, `staging_rsa`), system calls (`/bin/sh -c`, `cmd.exe /c`, `hostname`, `id -un`), env var names, OS/arch strings | Always |
+| `obfuscation: xor/aes` | Config values only — C2 URL, UUID, PSK, kill date, user-agent | Build option |
+
+`strings(1)` on the binary will not reveal command names, protocol keys, or system call strings.
 
 ### Sleep Interval
 
