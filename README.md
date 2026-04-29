@@ -52,7 +52,7 @@ Persistent WebSocket connection to the Mythic server. Messages follow the Mythic
 
 ### Chess.com
 
-Covert channel using Chess.com library collections and FEN positions (Base5 PNBRQ encoding, CheckmateC2 compatible). Requires the [chesscom-c2](https://github.com/0xbbuddha/chesscom-c2) C2 profile. Same encryption modes as HTTP.
+Covert channel using Chess.com library collections and FEN positions (Base5 PNBRQ encoding, CheckmateC2 compatible). Requires the [Chess.com](https://github.com/0xbbuddha/Chess.com) C2 profile. Same encryption modes as HTTP.
 
 ## Build Options
 
