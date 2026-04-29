@@ -4,15 +4,15 @@
 
 # Aphrodite
 
-Aphrodite is a lightweight cross-platform agent written in Nim, designed for Mythic 3.0 and newer. Named after Aphrodite, goddess of beauty — compiled to a native binary, no runtime dependencies required.
+Aphrodite is a lightweight cross-platform agent written in Nim, designed for Mythic 3.0 and newer. Named after Aphrodite, goddess of beauty, compiled to a native binary, no runtime dependencies required.
 
 ## Features
 
 - Linux and Windows support (cross-compiled from Linux via mingw-w64)
-- HTTP and WebSocket C2 profiles
+- HTTP, WebSocket, and Chess.com C2 profiles
 - AES-256-CBC + HMAC-SHA256 encryption (PSK mode)
-- EKE mode — RSA-2048 key exchange, session AES key negotiated at runtime (Linux only)
-- Plaintext mode (no encryption, for testing — leave AESPSK empty)
+- EKE mode - RSA-2048 key exchange, session AES key negotiated at runtime (Linux only)
+- Plaintext mode (no encryption, for testing - leave AESPSK empty)
 - Configurable sleep interval and jitter
 - Kill date support
 - Static binary option (no shared library dependencies on target)
@@ -21,7 +21,7 @@ Aphrodite is a lightweight cross-platform agent written in Nim, designed for Myt
   - Reconnaissance (`whoami`, `ps`, `hostname`, `ifconfig`, `arp`, `nslookup`, `uptime`, `netstat`)
   - File operations (`ls`, `cat`, `cd`, `pwd`, `mkdir`, `rm`, `mv`, `cp`, `tail`, `drives`, `chmod`, `chown`, `find`, `write`)
   - File transfer (`download`, `upload`, `wget`, `curl`)
-  - Execution (`shell`, `psh`, `sudo`, `runas`, `earlybird` — Windows only)
+  - Execution (`shell`, `psh`, `sudo`, `runas`, `earlybird` - Windows only)
   - Environment (`getenv`, `setenv`, `env`)
   - Agent control (`sleep`, `exit`, `kill`, `echo`, `socks`, `jobs`, `jobkill`, `config`)
 
@@ -42,13 +42,17 @@ Aphrodite is a lightweight cross-platform agent written in Nim, designed for Myt
 Aphrodite communicates over the default HTTP profile used by Mythic. All taskings and responses are done via POST requests.
 
 Encryption modes:
-- **PSK** — pre-shared AES-256 key baked at build time (uncheck "Encrypted Key Exchange")
-- **EKE** — RSA-2048 staging: the `staging_rsa` message is encrypted with the PSK, Mythic returns the session AES key encrypted with the agent's RSA public key. All subsequent messages use the negotiated session key (Linux only)
-- **Plaintext** — no encryption, leave AESPSK empty in the C2 profile
+- **PSK** - pre-shared AES-256 key baked at build time (uncheck "Encrypted Key Exchange")
+- **EKE** - RSA-2048 staging: the `staging_rsa` message is encrypted with the PSK, Mythic returns the session AES key encrypted with the agent's RSA public key. All subsequent messages use the negotiated session key (Linux only)
+- **Plaintext** - no encryption, leave AESPSK empty in the C2 profile
 
 ### WebSocket
 
 Persistent WebSocket connection to the Mythic server. Messages follow the Mythic WebSocket envelope format. Same encryption modes as HTTP.
+
+### Chess.com
+
+Covert channel using Chess.com library collections and FEN positions (Base5 PNBRQ encoding, CheckmateC2 compatible). Requires the [chesscom-c2](https://github.com/0xbbuddha/chesscom-c2) C2 profile. Same encryption modes as HTTP.
 
 ## Build Options
 
@@ -58,7 +62,7 @@ Persistent WebSocket connection to the Mythic server. Messages follow the Mythic
 | `architecture`  | Choice  | `amd64`   | Target architecture (amd64 only)                         |
 | `debug`         | Boolean | `false`   | Enable verbose debug output (larger binary)              |
 | `static_binary` | Boolean | `false`   | Statically link binary (no shared library dependencies)  |
-| `obfuscation`   | Choice  | `none`    | Config string obfuscation: `xor` or `aes` encode config values (C2 URL, UUID, PSK, etc.) at build time, decoded at runtime. All other codebase strings are always obfuscated via compile-time XOR (`hidstr`) regardless of this option |
+| `obfuscation`   | Choice  | `none`    | Config string obfuscation: `xor` or `aes` encode config values (C2 URL, UUID, PSK, kill date, user-agent) at build time, decoded at runtime. All other codebase strings are always obfuscated via compile-time XOR (`hidstr`) regardless of this option |
 
 ## Opsec Considerations
 
@@ -71,8 +75,8 @@ Aphrodite compiles to a native binary with no runtime interpreter required on th
 | Mode       | Description                                                                                      |
 |------------|--------------------------------------------------------------------------------------------------|
 | PSK        | AES-256-CBC + HMAC-SHA256 with a pre-shared key baked into the binary                           |
-| EKE        | RSA-2048 staging — `staging_rsa` encrypted with PSK, session key negotiated via RSA (Linux only) |
-| Plaintext  | No encryption — AESPSK left empty in C2 profile, for lab/testing use only                       |
+| EKE        | RSA-2048 staging - `staging_rsa` encrypted with PSK, session key negotiated via RSA (Linux only) |
+| Plaintext  | No encryption - AESPSK left empty in C2 profile, for lab/testing use only                       |
 
 ### String Obfuscation
 
@@ -80,8 +84,8 @@ Two independent layers of string obfuscation:
 
 | Layer | Scope | When active |
 |-------|-------|-------------|
-| `hidstr` compile-time XOR | All codebase strings — command names, C2 protocol keys (`checkin`, `get_tasking`, `staging_rsa`), system calls (`/bin/sh -c`, `cmd.exe /c`, `hostname`, `id -un`), env var names, OS/arch strings | Always |
-| `obfuscation: xor/aes` | Config values only — C2 URL, UUID, PSK, kill date, user-agent | Build option |
+| `hidstr` compile-time XOR | All codebase strings - command names, C2 protocol keys (`checkin`, `get_tasking`, `staging_rsa`), system calls (`/bin/sh -c`, `cmd.exe /c`, `hostname`, `id -un`), env var names, OS/arch strings | Always |
+| `obfuscation: xor/aes` | Config values only - C2 URL, UUID, PSK, kill date, user-agent | Build option |
 
 `strings(1)` on the binary will not reveal command names, protocol keys, or system call strings.
 
@@ -91,7 +95,7 @@ Tune the sleep interval and jitter according to your operational requirements. H
 
 ## Known Issues
 
-### EKE — Linux Only
+### EKE - Linux Only
 
 EKE (RSA-2048 staging) requires OpenSSL at build time and is currently only supported for Linux targets. Windows builds fall back to PSK mode automatically.
 
@@ -113,4 +117,4 @@ The following commands output plain text and could benefit from a structured tab
 
 ## Credit
 
-- [@0xbbuddha](https://github.com/0xbbuddha) — Author
+- [@0xbbuddha](https://github.com/0xbbuddha) - Author

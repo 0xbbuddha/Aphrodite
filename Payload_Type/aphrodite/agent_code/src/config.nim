@@ -14,3 +14,12 @@ const
   AesPsk* = ""
   UsePsk* = true
   DebugMode* = false
+  ChessCookie* = ""
+  ChessUploadToken* = ""
+  ChessClearToken* = ""
+  ChessAgentUploadCollection* = ""
+  ChessServerReplyCollection* = ""
+  ChessSkipItemIds* = ""
+  ChessLibraryReferer* = ""
+  ChessWaitMs* = 5000
+  ChessJitterSeconds* = 3

