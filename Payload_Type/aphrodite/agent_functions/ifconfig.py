@@ -21,6 +21,7 @@ class IfconfigCommand(CommandBase):
     argument_class = IfconfigArguments
     attackmapping = ["T1016"]
     attributes = CommandAttributes(supported_os=[SupportedOS.Linux, SupportedOS.Windows])
+    browser_script = BrowserScript(script_name="ifconfig", author="@0xbbuddha")
 
     async def create_tasking(self, task: MythicTask) -> MythicTask:
         return task

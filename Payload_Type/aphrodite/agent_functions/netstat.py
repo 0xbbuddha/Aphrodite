@@ -21,6 +21,7 @@ class NetstatCommand(CommandBase):
     argument_class = NetstatArguments
     attackmapping = ["T1049"]
     attributes = CommandAttributes(supported_os=[SupportedOS.Linux, SupportedOS.Windows])
+    browser_script = BrowserScript(script_name="netstat", author="@0xbbuddha")
 
     async def create_tasking(self, task: MythicTask) -> MythicTask:
         return task

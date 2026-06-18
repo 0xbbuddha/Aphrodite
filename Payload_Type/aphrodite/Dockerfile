@@ -4,6 +4,8 @@ RUN apt-get update && apt-get install -y \
     curl xz-utils mingw-w64 gcc git libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
+RUN pip3 install donut-shellcode
+
 ENV NIM_VERSION=2.0.4
 RUN curl -L https://nim-lang.org/download/nim-${NIM_VERSION}-linux_x64.tar.xz -o /tmp/nim.tar.xz \
     && tar -xf /tmp/nim.tar.xz -C /opt \

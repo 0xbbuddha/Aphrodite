@@ -40,6 +40,16 @@ from agent_functions import psh
 from agent_functions import sudo
 from agent_functions import runas
 from agent_functions import earlybird
+from agent_functions import inject
+from agent_functions import etwpatch
+from agent_functions import amsi
+from agent_functions import screenshot
+from agent_functions import reg
+from agent_functions import steal_token
+from agent_functions import make_token
+from agent_functions import rev2self
+from agent_functions import inline_execute
+from agent_functions import execute_assembly
 
 # --- Environment ---
 from agent_functions import env
