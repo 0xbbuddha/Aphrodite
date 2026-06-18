@@ -11,7 +11,7 @@ proc jobsExecute(taskId: string, params: JsonNode, state: AgentState,
   for tid in active:
     let pid = jobPid(tid)
     var entry = newJObject()
-    entry["task_id"] = %tid
+    entry[hidstr("task_id")] = %tid
     entry["pid"] = %pid
     jobsArr.add(entry)
   var res = newJObject()

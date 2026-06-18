@@ -54,7 +54,7 @@ when defined(windows):
     {.importc: "OpenProcessToken", dynlib: "advapi32".}
   proc DuplicateTokenEx(h: HANDLE, da: DWORD, attr: pointer,
                         il: SECURITY_IMPERSONATION_LEVEL, tt: TOKEN_TYPE,
-                        out: ptr HANDLE): BOOL
+                        phNewToken: ptr HANDLE): BOOL
     {.importc: "DuplicateTokenEx", dynlib: "advapi32".}
   proc ImpersonateLoggedOnUser(h: HANDLE): BOOL
     {.importc: "ImpersonateLoggedOnUser", dynlib: "advapi32".}

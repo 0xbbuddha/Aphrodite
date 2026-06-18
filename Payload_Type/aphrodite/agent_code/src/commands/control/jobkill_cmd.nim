@@ -6,7 +6,7 @@ import crypto/strenc
 
 proc jobkillExecute(taskId: string, params: JsonNode, state: AgentState,
                     send: SendMsg): TaskResult =
-  let tid = params{"task_id"}.getStr("").strip()
+  let tid = params{hidstr("task_id")}.getStr("").strip()
   if tid.len == 0:
     return TaskResult(output: "Error: task_id required",
                       status: "error", completed: true)

