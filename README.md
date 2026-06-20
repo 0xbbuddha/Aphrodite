@@ -4,7 +4,7 @@
 
 # Aphrodite
 
-Aphrodite is a stealth-first C2 agent written in Nim for [Mythic 3.0+](https://github.com/its-a-feature/Mythic). Every design decision prioritizes evasion: compile-time string obfuscation, W^X memory discipline, browser-grade HTTP fingerprints, ETW/AMSI patching, and zero runtime noise.
+Aphrodite is a stealth-first C2 agent written in Nim for [Mythic 3.0+](https://github.com/its-a-feature/Mythic). Every design decision prioritizes evasion: compile-time string obfuscation, W^X memory discipline, browser-grade HTTP fingerprints, direct NT syscalls (HellsGate/Halo's Gate), ETW/AMSI patching, anti-sandbox checks, and zero runtime noise.
 
 Cross-compiled to a native binary from Linux - no interpreter, no managed runtime, no dependencies on the target.
 
@@ -93,6 +93,54 @@ When compiled with `-d:sleepObf`, the AES session key and Mythic callback ID are
 
 Sleep jitter applies a random variation in both directions (+/-) rather than only reducing sleep time. Beacon timing is less predictable and harder to fingerprint statistically.
 
+### Direct Syscalls - HellsGate / Halo's Gate (build option)
+
+When compiled with `direct_syscalls=true`, NT function calls in the injection path bypass ntdll entirely. At startup, each required NT stub (`NtAllocateVirtualMemory`, `NtWriteVirtualMemory`, `NtProtectVirtualMemory`, `NtCreateThreadEx`, `NtQueueApcThreadEx`) is resolved by reading its syscall number (SSN) directly from the ntdll in-memory stub:
+
+```
+4C 8B D1        - mov r10, rcx
+B8 XX XX XX XX  - mov eax, <SSN>   <- read 4 bytes here
+0F 05           - syscall
+C3              - ret
+```
+
+If the stub is hooked (starts with `JMP` instead), Halo's Gate kicks in: the SSN is inferred by scanning neighboring stubs at -/+ 32-byte intervals and applying a delta correction based on how far the scan travelled.
+
+Patched stubs are written into a global buffer in `.data`, then `VirtualProtect`'d to `PAGE_EXECUTE_READ` (W^X). No `VirtualAlloc`, no RWX regions.
+
+All injection operations then call these stubs directly via function pointer. EDR userland hooks in ntdll are bypassed regardless of whether ntdll unhooking succeeded.
+
+Enables the `threadlessinject` technique (see below).
+
+### Threadless Injection (build option)
+
+Requires `direct_syscalls=true`. The `inject -technique threadlessinject` technique:
+
+1. `NtAllocateVirtualMemory` (direct syscall) - allocate RW region in target
+2. `NtWriteVirtualMemory` (direct syscall) - write shellcode
+3. `NtProtectVirtualMemory` (direct syscall) - flip to RX (W^X)
+4. `NtQueueApcThreadEx` with `QUEUE_USER_APC_FLAGS_SPECIAL_USER_APC=1` on all threads
+
+The `SPECIAL_USER_APC` flag (Windows 10 1703+) causes the APC to execute regardless of the target thread's alertable state. No thread suspension, no `CreateRemoteThread`, no `ResumeThread`. Every sensitive NT call goes through the HellsGate stub — ntdll hooks see nothing.
+
+### Anti-Sandbox (build option)
+
+When compiled with `anti_sandbox=true`, the agent runs five checks before the first beacon. If any check fails, the process exits silently with no network activity:
+
+| Check | Detection target |
+|-------|-----------------|
+| System uptime < 10 minutes | Recently-booted sandbox VM |
+| Physical RAM < 4 GB | Memory-constrained analysis VM |
+| CPU count < 2 | Single-core sandbox |
+| `NtQueryInformationProcess ProcessDebugPort` | Kernel debugger attached |
+| Sleep(1500ms) -> elapsed < 1000ms | Time-acceleration sandbox |
+
+The `Sleep` timing check specifically targets sandboxes that fast-forward time to avoid long sleep calls.
+
+### Secure Memory Wipe
+
+When the agent exits (via `exit` command or kill date), the AES session key and Mythic callback ID are zeroed in memory before the process terminates. Post-exit memory dumps (crash dumps, EDR memory snapshots) cannot recover C2 crypto material.
+
 ### Donut / LZFSE
 
 When generating shellcode via Donut for `execute_assembly` and similar payloads, LZFSE compression (`compress=2`) is used instead of the default aPLib (`compress=1`). The aPLib byte sequence in the Donut loader stub is a known Elastic signature (`Windows.Trojan.Donutloader`). LZFSE produces different stub bytes, avoiding this signature.
@@ -119,7 +167,7 @@ When generating shellcode via Donut for `execute_assembly` and similar payloads,
 | Filesystem | `ls`, `cat`, `cd`, `pwd`, `mkdir`, `rm`, `mv`, `cp`, `tail`, `drives`, `chmod`, `chown`, `find`, `write` |
 | Transfer | `download`, `upload`, `wget`, `curl` |
 | Execution | `shell`, `psh`, `sudo`, `runas` |
-| Injection (Windows) | `earlybird`, `inject` (createremotethread / queueapcthread / ntmapview) |
+| Injection (Windows) | `earlybird` (PPID spoof), `inject` (createremotethread / queueapcthread / ntmapview / threadlessinject) |
 | EDR Bypass (Windows) | `etwpatch`, `amsi` |
 | BOF (Windows) | `inline_execute`, `execute_assembly` |
 | Post-exploitation (Windows) | `screenshot`, `reg`, `steal_token`, `make_token`, `rev2self` |

