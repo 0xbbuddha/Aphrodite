@@ -64,8 +64,8 @@ NOTE: PSK mode — uncheck 'Encrypted Key Exchange' in the C2 profile.
             name="obfuscation",
             parameter_type=BuildParameterType.ChooseOne,
             description="String obfuscation: xor (XOR-encode config strings) or aes (AES-128-CBC-encode config strings). Works on all targets.",
-            choices=["none", "xor", "aes"],
-            default_value="none",
+            choices=["xor", "aes", "none"],
+            default_value="xor",
             required=False,
         ),
         BuildParameter(

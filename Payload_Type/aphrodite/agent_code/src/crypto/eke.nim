@@ -100,7 +100,7 @@ when defined(useEke):
   proc ekaDecryptSessionKey*(ctx: EkaHandle, encB64: string): seq[byte] =
     ## Decrypt the AES session key Mythic sends back (RSA-OAEP).
     let enc = base64.decode(encB64)
-    stderr.writeLine("[EKE] encrypted key len=" & $enc.len & " (expected 256 for RSA-2048)")
+    when defined(debug): stderr.writeLine("[EKE] encrypted key len=" & $enc.len & " (expected 256 for RSA-2048)")
     result = rsaDecrypt(ctx.h, enc)
 
   proc ekaSessionId*(): string =

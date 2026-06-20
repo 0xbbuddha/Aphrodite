@@ -88,23 +88,23 @@ proc wsConnect(t: Transport): bool =
     while not resp.endsWith("\r\n\r\n"):
       var ch = newString(1)
       if t.sock.recv(ch, 1) <= 0:
-        stderr.writeLine("[!] WS: connection closed during handshake")
+        when defined(debug): stderr.writeLine("[!] WS: connection closed during handshake")
         return false
       resp.add(ch[0])
       if resp.len > 8192:
-        stderr.writeLine("[!] WS: handshake response too large")
+        when defined(debug): stderr.writeLine("[!] WS: handshake response too large")
         return false
 
     if "101" notin resp:
-      stderr.writeLine("[!] WS: handshake rejected — " & resp[0 .. min(120, resp.high)])
+      when defined(debug): stderr.writeLine("[!] WS: handshake rejected — " & resp[0 .. min(120, resp.high)])
       return false
 
     t.connected = true
-    stderr.writeLine("[+] WS connected: ws://" & t.host & ":" & $t.port & "/" & cleanPath)
+    when defined(debug): stderr.writeLine("[+] WS connected: ws://" & t.host & ":" & $t.port & "/" & cleanPath)
     return true
 
   except Exception as e:
-    stderr.writeLine("[!] WS connect error: " & e.msg)
+    when defined(debug): stderr.writeLine("[!] WS connect error: " & e.msg)
     if t.sock != nil:
       try: t.sock.close() except: discard
       t.sock = nil
@@ -172,7 +172,7 @@ proc wsRecvFrame(t: Transport, timeoutMs: int = -1): string =
     var payload = ""
     if payloadLen > 0:
       if payloadLen > 50_000_000:
-        stderr.writeLine("[!] WS: frame payload too large (" & $payloadLen & " bytes)")
+        when defined(debug): stderr.writeLine("[!] WS: frame payload too large (" & $payloadLen & " bytes)")
         return ""
       payload = t.recvExact(payloadLen, timeoutMs)
       if payload.len < payloadLen: return ""
@@ -183,7 +183,7 @@ proc wsRecvFrame(t: Transport, timeoutMs: int = -1): string =
     case opcode
     of 0x1, 0x2:  # text / binary
       if not fin:
-        stderr.writeLine("[!] WS: fragmented frames not supported")
+        when defined(debug): stderr.writeLine("[!] WS: fragmented frames not supported")
         return ""
       return payload
 
@@ -199,7 +199,7 @@ proc wsRecvFrame(t: Transport, timeoutMs: int = -1): string =
       continue
 
     else:
-      stderr.writeLine("[!] WS: unknown opcode 0x" & toHex(int(opcode), 1))
+      when defined(debug): stderr.writeLine("[!] WS: unknown opcode 0x" & toHex(int(opcode), 1))
       return ""
 
 # ---------------------------------------------------------------------------
@@ -208,10 +208,10 @@ proc wsRecvFrame(t: Transport, timeoutMs: int = -1): string =
 
 proc post*(t: Transport, currentUUID: string, aesKey: seq[byte], jsonBody: string): string =
   let data = buildMessage(currentUUID, aesKey, jsonBody)
-  stderr.writeLine("[*] WS -> " & t.host & ":" & $t.port & "/" & t.path)
+  when defined(debug): stderr.writeLine("[*] WS -> " & t.host & ":" & $t.port & "/" & t.path)
 
   if not t.wsConnect():
-    stderr.writeLine("[!] WS: connection unavailable")
+    when defined(debug): stderr.writeLine("[!] WS: connection unavailable")
     return ""
 
   try:
@@ -230,17 +230,17 @@ proc post*(t: Transport, currentUUID: string, aesKey: seq[byte], jsonBody: strin
       let frame = t.wsRecvFrame(timeoutMs = frameTimeMs)
       if frame.len == 0:
         t.connected = false
-        stderr.writeLine("[!] WS: frame read failed (attempt " & $attempt & ")")
+        when defined(debug): stderr.writeLine("[!] WS: frame read failed (attempt " & $attempt & ")")
         return ""
 
-      stderr.writeLine("[DBG] WS frame #" & $attempt & " (" & $frame.len & "b): " &
+      when defined(debug): stderr.writeLine("[DBG] WS frame #" & $attempt & " (" & $frame.len & "b): " &
                        frame[0 .. min(150, frame.high)])
 
       if frame.len > 0 and frame[0] == '{':
         try:
           rawB64 = parseJson(frame){"data"}.getStr("")
         except Exception as je:
-          stderr.writeLine("[!] WS: JSON parse error: " & je.msg)
+          when defined(debug): stderr.writeLine("[!] WS: JSON parse error: " & je.msg)
           rawB64 = ""
       else:
         rawB64 = frame.strip()
@@ -250,17 +250,17 @@ proc post*(t: Transport, currentUUID: string, aesKey: seq[byte], jsonBody: strin
       # Empty data — server ACK, wait for the real response
 
     if rawB64.len == 0:
-      stderr.writeLine("[!] WS: no data after " & $maxFrames & " frames")
+      when defined(debug): stderr.writeLine("[!] WS: no data after " & $maxFrames & " frames")
       return ""
 
     let rawBytes = toBytes(base64.decode(rawB64))
     result = parseResponse(rawBytes, aesKey)
     if result.len > 0:
-      stderr.writeLine("[+] WS OK (" & $result.len & " bytes)")
+      when defined(debug): stderr.writeLine("[+] WS OK (" & $result.len & " bytes)")
     else:
-      stderr.writeLine("[!] WS: decrypt/decode failed")
+      when defined(debug): stderr.writeLine("[!] WS: decrypt/decode failed")
 
   except Exception as e:
-    stderr.writeLine("[!] WS error: " & e.msg)
+    when defined(debug): stderr.writeLine("[!] WS error: " & e.msg)
     t.connected = false
     result = ""

